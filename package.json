@@ -1,0 +1,22 @@
+{
+  "name": "navion",
+  "version": "1.0.0",
+  "description": "Navion Core",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": [
+    "proxy",
+    "web-proxy",
+    "navion",
+    "zero-dependencies"
+  ],
+  "author": "Navine",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {}
+}
