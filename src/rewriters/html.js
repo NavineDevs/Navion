@@ -146,7 +146,7 @@ function findTagEnd(html, from) {
 
 const INJECT = (base, mode) =>
   `<script>!function(){` +
-  `var _cw=console.warn,_ce=console.error;function _nf(a){try{var s=Array.prototype.join.call(a," ");return s.indexOf("The Chrome/Firefox/Safari extension cannot be detected on localhost")!==-1||s.indexOf("Navigator is not modified on localhost")!==-1||s.indexOf("Use ngrok to detect the extension")!==-1;}catch(e){return false}}console.warn=function(){if(_nf(arguments))return;return _cw.apply(console,arguments)};console.error=function(){if(_nf(arguments))return;return _ce.apply(console,arguments)};` +
+  `var _cw=console.warn,_ce=console.error,_cl=console.log;function _nf(a){try{var s=Array.prototype.join.call(a," ");return s.indexOf("The Chrome/Firefox/Safari extension cannot be detected on localhost")!==-1||s.indexOf("Navigator is not modified on localhost")!==-1||s.indexOf("Use ngrok to detect the extension")!==-1||s.indexOf("ChunkLoadError: Loading chunk")!==-1||s.indexOf("Loading chunk 2005 failed")!==-1||s.indexOf("useTranslation: SUBSCRIPTION_LINK_FOOTER is not available")!==-1||s.indexOf("working version is:")!==-1;}catch(e){return false}}console.warn=function(){if(_nf(arguments))return;return _cw.apply(console,arguments)};console.error=function(){if(_nf(arguments))return;return _ce.apply(console,arguments)};console.log=function(){if(_nf(arguments))return;return _cl.apply(console,arguments)};` +
   `var c=window.__navion={prefix:"/nv/",base:${JSON.stringify(base)},` +
   `mode:${JSON.stringify(mode || "full")},` +
   `encode:function(u){try{return btoa(encodeURIComponent(u)).replace(/\\+/g,"-").replace(/\\//g,"_").replace(/=/g,"")}catch(e){return u}},` +
@@ -160,7 +160,7 @@ const INJECT = (base, mode) =>
   `document.addEventListener("click",function(e){var el=e.target&&e.target.closest&&e.target.closest("a[href]");if(!el)return;var h=el.getAttribute("href");if(!h||h.startsWith("#")||h.startsWith("javascript:"))return;var p=c.rewrite(h,_base());if(p&&p!==h)el.setAttribute("href",p);},true);` +
   `document.addEventListener("submit",function(e){var f=e.target;if(!f||!f.action)return;var p=c.rewrite(f.action,_base());if(p&&p!==f.action)f.action=p;},true);` +
   `}();</script>` +
-  `<script src="/nv.client.js?v=4.2.5"></script>`;
+  `<script src="/nv.client.js?v=4.2.7"></script>`;
 
 export function rewriteHtml(html, base, options = {}) {
   const injectRuntime = options.injectRuntime !== false;

@@ -237,6 +237,21 @@ function rewriteDuckAiScript(source, resourceUrl) {
   }
 }
 
+function rewriteDuckDuckGoScript(source, resourceUrl) {
+  try {
+    const u = new URL(resourceUrl);
+    const host = u.hostname.toLowerCase();
+    if (host !== "duckduckgo.com" && !host.endsWith(".duckduckgo.com")) return source;
+    const root = `${PREFIX}${encode(`${u.origin}/`)}`;
+    return source
+      .replace(/(["'`])\/dist\//g, `$1${root}dist/`)
+      .replace(/(["'`])\/_next\//g, `$1${root}_next/`)
+      .replace(/(["'`])\/country\.json/g, `$1${root}country.json`);
+  } catch {
+    return source;
+  }
+}
+
 function isRecoverableSocketError(err) {
   if (!err) return false;
   const code = String(err.code || "");
@@ -837,7 +852,7 @@ export async function handleProxy(req, res, url) {
       }
       const buf = await collectStream(decompressStream(response.body, enc));
       const source = buf.toString("utf8");
-      const prepared = rewriteDuckAiScript(source, finalUrl);
+      const prepared = rewriteDuckDuckGoScript(rewriteDuckAiScript(source, finalUrl), finalUrl);
       const out = shouldBypassJsRewrite(finalUrl) ? prepared : rewriteJs(prepared, finalUrl);
       delete outHeaders["content-length"];
       res.writeHead(response.status, outHeaders);

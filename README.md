@@ -61,6 +61,47 @@ Core server default:
 
 All UI/shell routes now live in `Navion-App`.
 
+## Use as an npm dependency
+
+Install from npm after publishing:
+
+```bash
+npm install navion
+```
+
+Install from a local checkout:
+
+```bash
+npm install ../Navion
+```
+
+Import the core proxy API:
+
+```js
+import { createNavionCoreServer, handleProxy, encode, decode } from "navion";
+
+const server = createNavionCoreServer({
+  port: 8080,
+  appOrigin: "http://localhost:8090"
+});
+
+server.listen(8080, "0.0.0.0");
+```
+
+Import focused modules:
+
+```js
+import { handleProxy } from "navion/proxy";
+import { rewriteHtml } from "navion/rewriters/html";
+import { rewriteUrl } from "navion/rewriters/url";
+```
+
+Run the core directly:
+
+```bash
+npx navion-core
+```
+
 ## Branding / Credits
 
 - Company: **Navine**
@@ -81,7 +122,6 @@ If you want a feature but do not want external packages, build small internal mo
 Example pattern:
 
 ```js
-// src/internal/header-policy.js
 export function applyHeaderPolicy(headers) {
   const out = {};
   for (const [k, v] of Object.entries(headers || {})) {
