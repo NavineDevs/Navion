@@ -159,6 +159,25 @@ function shouldBypassJsRewrite(resourceUrl) {
   }
 }
 
+function isDuckDuckGoTelemetryHost(hostname) {
+  const host = String(hostname || "").toLowerCase();
+  return host === "improving.duckduckgo.com" || host.endsWith(".improving.duckduckgo.com");
+}
+
+function isDuckDuckGoTelemetryPath(pathname) {
+  const path = String(pathname || "").toLowerCase();
+  return path.startsWith("/t/") || path === "/e";
+}
+
+function isAccountsYouTubeProbe(hostname, pathname) {
+  const host = String(hostname || "").toLowerCase();
+  const path = String(pathname || "").toLowerCase();
+  return (
+    (host === "accounts.youtube.com" || host.endsWith(".accounts.youtube.com")) &&
+    path.startsWith("/accounts/checkconnection")
+  );
+}
+
 function isGoogleIdentityDocument(urlString) {
   try {
     const u = new URL(urlString);
@@ -576,6 +595,8 @@ export async function handleProxy(req, res, url) {
   const isYouTubeHost = isYouTubeLikeHost(host);
   const isYouTubeApi = isYouTubeHost && target.pathname.startsWith("/youtubei/");
   const isYouTubeTelemetry = isYouTubeHost && isNonCriticalYouTubeTelemetryPath(target.pathname);
+  const isDuckDuckGoTelemetry = isDuckDuckGoTelemetryHost(host) && isDuckDuckGoTelemetryPath(target.pathname);
+  const isAccountsYouTubeHealthProbe = isAccountsYouTubeProbe(host, target.pathname);
   const isYouTubeGenerate204 =
     target.pathname === "/generate_204" &&
     (isYouTubeHost || host === "ytimg.com" || host.endsWith(".ytimg.com"));
@@ -589,6 +610,13 @@ export async function handleProxy(req, res, url) {
     return;
   }
   if (isYouTubeTelemetry) {
+    const quietHeaders = { "cache-control": "no-store" };
+    if (setSessionCookie) quietHeaders["set-cookie"] = navionSessionCookieValue(sessionId);
+    res.writeHead(204, quietHeaders);
+    res.end();
+    return;
+  }
+  if (isDuckDuckGoTelemetry || isAccountsYouTubeHealthProbe) {
     const quietHeaders = { "cache-control": "no-store" };
     if (setSessionCookie) quietHeaders["set-cookie"] = navionSessionCookieValue(sessionId);
     res.writeHead(204, quietHeaders);
