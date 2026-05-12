@@ -222,6 +222,21 @@ function isNoisyThirdPartyScript(urlString) {
   }
 }
 
+function rewriteDuckAiScript(source, resourceUrl) {
+  try {
+    const u = new URL(resourceUrl);
+    const host = u.hostname.toLowerCase();
+    if (host !== "duck.ai" && !host.endsWith(".duck.ai")) return source;
+    const root = `${PREFIX}${encode(`${u.origin}/`)}`;
+    return source
+      .replace(/(["'`])\/dist\/duckai-dist\//g, `$1${root}dist/duckai-dist/`)
+      .replace(/(["'`])\/dist\/locale\//g, `$1${root}dist/locale/`)
+      .replace(/(["'`])\/country\.json/g, `$1${root}country.json`);
+  } catch {
+    return source;
+  }
+}
+
 function isRecoverableSocketError(err) {
   if (!err) return false;
   const code = String(err.code || "");
@@ -822,7 +837,8 @@ export async function handleProxy(req, res, url) {
       }
       const buf = await collectStream(decompressStream(response.body, enc));
       const source = buf.toString("utf8");
-      const out = shouldBypassJsRewrite(finalUrl) ? source : rewriteJs(source, finalUrl);
+      const prepared = rewriteDuckAiScript(source, finalUrl);
+      const out = shouldBypassJsRewrite(finalUrl) ? prepared : rewriteJs(prepared, finalUrl);
       delete outHeaders["content-length"];
       res.writeHead(response.status, outHeaders);
       res.end(out);

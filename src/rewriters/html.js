@@ -160,7 +160,7 @@ const INJECT = (base, mode) =>
   `document.addEventListener("click",function(e){var el=e.target&&e.target.closest&&e.target.closest("a[href]");if(!el)return;var h=el.getAttribute("href");if(!h||h.startsWith("#")||h.startsWith("javascript:"))return;var p=c.rewrite(h,_base());if(p&&p!==h)el.setAttribute("href",p);},true);` +
   `document.addEventListener("submit",function(e){var f=e.target;if(!f||!f.action)return;var p=c.rewrite(f.action,_base());if(p&&p!==f.action)f.action=p;},true);` +
   `}();</script>` +
-  `<script src="/nv.client.js?v=4.2.4"></script>`;
+  `<script src="/nv.client.js?v=4.2.5"></script>`;
 
 export function rewriteHtml(html, base, options = {}) {
   const injectRuntime = options.injectRuntime !== false;
