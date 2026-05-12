@@ -159,6 +159,23 @@ function shouldBypassJsRewrite(resourceUrl) {
   }
 }
 
+function isGoogleIdentityDocument(urlString) {
+  try {
+    const u = new URL(urlString);
+    const host = u.hostname.toLowerCase();
+    const path = u.pathname.toLowerCase();
+    if (host === "accounts.google.com" || host.endsWith(".accounts.google.com")) return true;
+    return (
+      path.includes("/servicelogin") ||
+      path.includes("/signin") ||
+      path.includes("/o/oauth2") ||
+      path.includes("/consent")
+    );
+  } catch {
+    return false;
+  }
+}
+
 function isRecoverableSocketError(err) {
   if (!err) return false;
   const code = String(err.code || "");
@@ -681,25 +698,18 @@ export async function handleProxy(req, res, url) {
       const buf = await collectStream(decompressStream(response.body, enc));
       const charset = (ct.match(/charset=([\w-]+)/i) || [])[1] || "utf-8";
       const text = buf.toString(/utf-?8/i.test(charset) ? "utf8" : "latin1");
+      if (isGoogleIdentityDocument(finalUrl)) {
+        outHeaders["content-type"] = "text/html; charset=utf-8";
+        delete outHeaders["content-length"];
+        res.writeHead(response.status, outHeaders);
+        res.end(text);
+        return;
+      }
       let injectRuntime = true;
       let runtimeMode = "full";
       let rewriteMode = "full";
       try {
         const htmlHost = new URL(finalUrl).hostname.toLowerCase();
-        const htmlPath = new URL(finalUrl).pathname.toLowerCase();
-        const isGoogleIdentityHost =
-          htmlHost === "accounts.google.com" ||
-          htmlHost.endsWith(".accounts.google.com");
-        const isGoogleIdentityPath =
-          htmlPath.includes("/servicelogin") ||
-          htmlPath.includes("/signin") ||
-          htmlPath.includes("/o/oauth2") ||
-          htmlPath.includes("/consent");
-        if (isGoogleIdentityHost || isGoogleIdentityPath) {
-          injectRuntime = false;
-          runtimeMode = "lite";
-          rewriteMode = "nav-only";
-        } else
         if (
           htmlHost === "youtube.com" ||
           htmlHost === "www.youtube.com" ||
