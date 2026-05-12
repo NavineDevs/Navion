@@ -169,6 +169,17 @@ function isDuckDuckGoTelemetryPath(pathname) {
   return path.startsWith("/t/") || path === "/e";
 }
 
+function isDroppedTelemetryTarget(hostname, pathname) {
+  const host = String(hostname || "").toLowerCase();
+  const path = String(pathname || "").toLowerCase();
+  return (
+    host === "improving.duckduckgo.com" ||
+    host.endsWith(".improving.duckduckgo.com") ||
+    path.startsWith("/t/static_fcp") ||
+    path.startsWith("/t/page_home_searchbox_submit")
+  );
+}
+
 function isAccountsYouTubeProbe(hostname, pathname) {
   const host = String(hostname || "").toLowerCase();
   const path = String(pathname || "").toLowerCase();
@@ -189,6 +200,22 @@ function isGoogleIdentityDocument(urlString) {
       path.includes("/signin") ||
       path.includes("/o/oauth2") ||
       path.includes("/consent")
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isNoisyThirdPartyScript(urlString) {
+  try {
+    const u = new URL(urlString);
+    const host = u.hostname.toLowerCase();
+    const path = u.pathname.toLowerCase();
+    return (
+      host === "imasdk.googleapis.com" ||
+      host.endsWith(".imasdk.googleapis.com") ||
+      path.endsWith("/ima3.js") ||
+      path.includes("/ima3.js")
     );
   } catch {
     return false;
@@ -596,6 +623,13 @@ export async function handleProxy(req, res, url) {
   const isYouTubeApi = isYouTubeHost && target.pathname.startsWith("/youtubei/");
   const isYouTubeTelemetry = isYouTubeHost && isNonCriticalYouTubeTelemetryPath(target.pathname);
   const isDuckDuckGoTelemetry = isDuckDuckGoTelemetryHost(host) && isDuckDuckGoTelemetryPath(target.pathname);
+  if (isDroppedTelemetryTarget(host, target.pathname)) {
+    const quietHeaders = { "cache-control": "no-store" };
+    if (setSessionCookie) quietHeaders["set-cookie"] = navionSessionCookieValue(sessionId);
+    res.writeHead(204, quietHeaders);
+    res.end();
+    return;
+  }
   const isAccountsYouTubeHealthProbe = isAccountsYouTubeProbe(host, target.pathname);
   const isYouTubeGenerate204 =
     target.pathname === "/generate_204" &&
@@ -659,7 +693,6 @@ export async function handleProxy(req, res, url) {
     target.pathname === "/" &&
     target.searchParams.has("themeRefresh");
 
-  // Rammerhead-inspired origin normalization for CORS-sensitive upstream APIs.
   if (!fwdHeaders.origin && fwdHeaders.referer) {
     const method = (req.method || "GET").toUpperCase();
     if (method !== "GET" && method !== "HEAD") {
@@ -722,6 +755,15 @@ export async function handleProxy(req, res, url) {
         headers: outHeaders,
       });
 
+    if (response.status >= 400 && isNonCriticalFailure(req, targetUrl)) {
+      response.body.resume();
+      const quietHeaders = { "cache-control": "no-store" };
+      if (ct.includes("application/json")) quietHeaders["content-type"] = "application/json; charset=utf-8";
+      res.writeHead(quietHeaders["content-type"] ? 200 : 204, quietHeaders);
+      res.end(quietHeaders["content-type"] ? "{}" : undefined);
+      return;
+    }
+
     if (ct.includes("text/html")) {
       const buf = await collectStream(decompressStream(response.body, enc));
       const charset = (ct.match(/charset=([\w-]+)/i) || [])[1] || "utf-8";
@@ -734,7 +776,7 @@ export async function handleProxy(req, res, url) {
         return;
       }
       let injectRuntime = true;
-      let runtimeMode = "full";
+      let runtimeMode = "lite";
       let rewriteMode = "full";
       try {
         const htmlHost = new URL(finalUrl).hostname.toLowerCase();
@@ -744,13 +786,10 @@ export async function handleProxy(req, res, url) {
           htmlHost === "m.youtube.com" ||
           htmlHost.endsWith(".youtube.com")
         ) {
-          // Use a minimal hook runtime for YouTube to keep request routing stable
-          // without the heavier DOM sink/property monkey-patching.
           injectRuntime = true;
           runtimeMode = "lite";
           rewriteMode = "nav-only";
         } else if (htmlHost === "duckduckgo.com" || htmlHost.endsWith(".duckduckgo.com")) {
-          // Keep DDG routing stable while avoiding heavy monkey-patching.
           injectRuntime = true;
           runtimeMode = "lite";
           rewriteMode = "full";
@@ -759,7 +798,6 @@ export async function handleProxy(req, res, url) {
           htmlHost === "www.google.com" ||
           htmlHost.endsWith(".google.com")
         ) {
-          // Keep Google routing stable while minimizing hydration side effects.
           injectRuntime = true;
           runtimeMode = "lite";
           rewriteMode = "full";
@@ -774,6 +812,14 @@ export async function handleProxy(req, res, url) {
     }
 
     if (ct.includes("javascript") || ct.includes("ecmascript")) {
+      if (isNoisyThirdPartyScript(finalUrl)) {
+        delete outHeaders["content-length"];
+        outHeaders["content-type"] = "application/javascript; charset=utf-8";
+        response.body.resume();
+        res.writeHead(200, outHeaders);
+        res.end("");
+        return;
+      }
       const buf = await collectStream(decompressStream(response.body, enc));
       const source = buf.toString("utf8");
       const out = shouldBypassJsRewrite(finalUrl) ? source : rewriteJs(source, finalUrl);

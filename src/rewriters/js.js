@@ -10,7 +10,6 @@ export function rewriteJs(js, base) {
 
   let out = js;
 
-  // Ultraviolet-inspired targeted URL rewriting for worker and script loaders.
   out = out.replace(
     /(importScripts\s*\(\s*)(['"])([^'"]+)\2/g,
     (m, pre, q, value) => `${pre}${q}${rewriteScriptUrlLiteral(value, base)}${q}`

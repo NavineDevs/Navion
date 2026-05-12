@@ -31,17 +31,36 @@ const NAV_ONLY_TAG_ATTRS = {
   frame: new Set(["src"]),
 };
 
+function isPreloadAttrs(attrs) {
+  return /\srel(?:\s*=\s*(?:"[^"]*\b(?:preload|modulepreload)\b[^"]*"|'[^']*\b(?:preload|modulepreload)\b[^']*'|[^\s"'=<>`]*\b(?:preload|modulepreload)\b[^\s"'=<>`]*))?/i.test(attrs);
+}
+
 function splitSrcsetEntries(srcset) {
   const entries = [];
   let buf = "";
   let parenDepth = 0;
+  let inDataUrl = false;
+  let dataCommaSeen = false;
 
   for (let i = 0; i < srcset.length; i++) {
     const ch = srcset[i];
+    if (!buf.trim() && srcset.slice(i, i + 5).toLowerCase() === "data:") {
+      inDataUrl = true;
+      dataCommaSeen = false;
+    }
     if (ch === "(") parenDepth++;
     else if (ch === ")" && parenDepth > 0) parenDepth--;
 
-    if (ch === "," && parenDepth === 0) {
+    if (inDataUrl) {
+      if (ch === "," && !dataCommaSeen) {
+        dataCommaSeen = true;
+        buf += ch;
+        continue;
+      }
+      if (dataCommaSeen && /\s/.test(ch)) inDataUrl = false;
+    }
+
+    if (ch === "," && parenDepth === 0 && !inDataUrl) {
       if (buf.trim()) entries.push(buf.trim());
       buf = "";
       continue;
@@ -72,12 +91,16 @@ function normalizeSandboxValue(value) {
 function processAttrs(attrs, base, tagName, rewriteMode) {
   const isNavOnly = rewriteMode === "nav-only";
   const allowed = isNavOnly ? NAV_ONLY_TAG_ATTRS[tagName] : null;
-  const isPreloadLink = tagName === "link" && /\srel\s*=\s*(["'])(?:(?!\1)[\s\S])*?(?:preload|modulepreload)(?:(?!\1)[\s\S])*?\1/i.test(attrs);
+  const isPreloadLink = tagName === "link" && isPreloadAttrs(attrs);
+  let hasCrossorigin = false;
   let out = attrs.replace(
     /(\s+)([\w:-]+)(\s*=\s*)(["'])([\s\S]*?)\4/g,
     (m, sp, name, eq, q, val) => {
       const n = name.toLowerCase();
-      if (isPreloadLink && n === "crossorigin") return "";
+      if (isPreloadLink && n === "crossorigin") {
+        hasCrossorigin = true;
+        return sp + name + eq + q + "use-credentials" + q;
+      }
       if ((tagName === "iframe" || tagName === "frame") && n === "sandbox") {
         return sp + name + eq + q + normalizeSandboxValue(val) + q;
       }
@@ -98,6 +121,7 @@ function processAttrs(attrs, base, tagName, rewriteMode) {
       return m;
     }
   );
+  if (isPreloadLink && !hasCrossorigin) out += ` crossorigin="use-credentials"`;
   if (tagName === "iframe" || tagName === "frame") {
     out = out.replace(/(\s+sandbox\s*=\s*)([^\s"'=<>`]+)/i, (m, pre, val) => {
       return pre + `"${normalizeSandboxValue(val)}"`;
@@ -122,6 +146,7 @@ function findTagEnd(html, from) {
 
 const INJECT = (base, mode) =>
   `<script>!function(){` +
+  `var _cw=console.warn,_ce=console.error;function _nf(a){try{var s=Array.prototype.join.call(a," ");return s.indexOf("The Chrome/Firefox/Safari extension cannot be detected on localhost")!==-1||s.indexOf("Navigator is not modified on localhost")!==-1||s.indexOf("Use ngrok to detect the extension")!==-1;}catch(e){return false}}console.warn=function(){if(_nf(arguments))return;return _cw.apply(console,arguments)};console.error=function(){if(_nf(arguments))return;return _ce.apply(console,arguments)};` +
   `var c=window.__navion={prefix:"/nv/",base:${JSON.stringify(base)},` +
   `mode:${JSON.stringify(mode || "full")},` +
   `encode:function(u){try{return btoa(encodeURIComponent(u)).replace(/\\+/g,"-").replace(/\\//g,"_").replace(/=/g,"")}catch(e){return u}},` +
@@ -135,7 +160,7 @@ const INJECT = (base, mode) =>
   `document.addEventListener("click",function(e){var el=e.target&&e.target.closest&&e.target.closest("a[href]");if(!el)return;var h=el.getAttribute("href");if(!h||h.startsWith("#")||h.startsWith("javascript:"))return;var p=c.rewrite(h,_base());if(p&&p!==h)el.setAttribute("href",p);},true);` +
   `document.addEventListener("submit",function(e){var f=e.target;if(!f||!f.action)return;var p=c.rewrite(f.action,_base());if(p&&p!==f.action)f.action=p;},true);` +
   `}();</script>` +
-  `<script src="/nv.client.js?v=4.2.2"></script>`;
+  `<script src="/nv.client.js?v=4.2.4"></script>`;
 
 export function rewriteHtml(html, base, options = {}) {
   const injectRuntime = options.injectRuntime !== false;
@@ -213,6 +238,11 @@ export function rewriteHtml(html, base, options = {}) {
 
     if (tag === "meta") {
       if (/content-security-policy/i.test(inner)) { i = tagEnd + 1; continue; }
+    }
+
+    if (tag === "link" && isPreloadAttrs(inner)) {
+      i = tagEnd + 1;
+      continue;
     }
 
     if (tag === "base") {
