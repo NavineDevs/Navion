@@ -72,10 +72,12 @@ function normalizeSandboxValue(value) {
 function processAttrs(attrs, base, tagName, rewriteMode) {
   const isNavOnly = rewriteMode === "nav-only";
   const allowed = isNavOnly ? NAV_ONLY_TAG_ATTRS[tagName] : null;
+  const isPreloadLink = tagName === "link" && /\srel\s*=\s*(["'])(?:(?!\1)[\s\S])*?(?:preload|modulepreload)(?:(?!\1)[\s\S])*?\1/i.test(attrs);
   let out = attrs.replace(
     /(\s+)([\w:-]+)(\s*=\s*)(["'])([\s\S]*?)\4/g,
     (m, sp, name, eq, q, val) => {
       const n = name.toLowerCase();
+      if (isPreloadLink && n === "crossorigin") return "";
       if ((tagName === "iframe" || tagName === "frame") && n === "sandbox") {
         return sp + name + eq + q + normalizeSandboxValue(val) + q;
       }

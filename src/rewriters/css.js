@@ -1,16 +1,74 @@
 import { rewriteUrl } from "./url.js";
 
+function rewriteCssUrls(css, base) {
+  let out = "";
+  let i = 0;
+
+  while (i < css.length) {
+    const idx = css.toLowerCase().indexOf("url(", i);
+    if (idx === -1) {
+      out += css.slice(i);
+      break;
+    }
+
+    out += css.slice(i, idx);
+    let pos = idx + 4;
+    while (pos < css.length && /\s/.test(css[pos])) pos++;
+
+    const quote = css[pos] === "\"" || css[pos] === "'" ? css[pos++] : "";
+    let value = "";
+    let closed = false;
+
+    while (pos < css.length) {
+      const ch = css[pos];
+      if (quote) {
+        if (ch === "\\" && pos + 1 < css.length) {
+          value += ch + css[pos + 1];
+          pos += 2;
+          continue;
+        }
+        if (ch === quote) {
+          pos++;
+          closed = true;
+          break;
+        }
+        value += ch;
+        pos++;
+        continue;
+      }
+      if (ch === ")") {
+        closed = true;
+        break;
+      }
+      value += ch;
+      pos++;
+    }
+
+    if (!closed) {
+      out += css.slice(idx);
+      break;
+    }
+
+    while (pos < css.length && /\s/.test(css[pos])) pos++;
+    if (css[pos] !== ")") {
+      out += css.slice(idx, pos);
+      i = pos;
+      continue;
+    }
+
+    const rewritten = rewriteUrl(value.trim(), base);
+    out += `url(${quote}${rewritten}${quote})`;
+    i = pos + 1;
+  }
+
+  return out;
+}
+
 export function rewriteCss(css, base) {
   if (!css) return css;
 
-  return css
-    .replace(/url\(\s*(['"]?)([^'")]+)\1\s*\)/gi, (_, quote, url) => {
-      return `url(${quote}${rewriteUrl(url.trim(), base)}${quote})`;
-    })
+  return rewriteCssUrls(css, base)
     .replace(/@import\s+(['"])([^'"]+)\1/gi, (_, quote, url) => {
       return `@import ${quote}${rewriteUrl(url, base)}${quote}`;
     })
-    .replace(/@import\s+url\(\s*(['"]?)([^'")]+)\1\s*\)/gi, (_, quote, url) => {
-      return `@import url(${quote}${rewriteUrl(url.trim(), base)}${quote})`;
-    });
 }
