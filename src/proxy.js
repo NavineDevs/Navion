@@ -89,7 +89,7 @@ function isNonCriticalFailure(req, targetUrl) {
     ) {
       return true;
     }
-    if (/\.(?:js|mjs|css|map|png|jpe?g|gif|webp|svg|ico|woff2?|ttf|otf|mp4|webm|json)(?:$|\?)/i.test(pathname)) {
+    if (/\.(?:js|mjs|css|map|png|jpe?g|gif|webp|svg|ico|woff2?|ttf|otf|mp4|webm|mp3|m4a|ogg|opus|wav|json)(?:$|\?)/i.test(pathname)) {
       return true;
     }
   } catch {}
@@ -105,6 +105,101 @@ function isNonCriticalFailure(req, targetUrl) {
     accept.includes("application/json") ||
     accept.includes("*/*")
   );
+}
+
+function isAssetRequest(req, targetUrl, contentType = "") {
+  const dest = String(req.headers["sec-fetch-dest"] || "").toLowerCase();
+  if (
+    dest === "script" ||
+    dest === "style" ||
+    dest === "font" ||
+    dest === "image" ||
+    dest === "audio" ||
+    dest === "video" ||
+    dest === "track"
+  ) {
+    return true;
+  }
+  const accept = String(req.headers.accept || "").toLowerCase();
+  if (
+    accept.includes("javascript") ||
+    accept.includes("text/css") ||
+    accept.includes("image/") ||
+    accept.includes("font/") ||
+    accept.includes("audio/") ||
+    accept.includes("video/") ||
+    accept.includes("application/json")
+  ) {
+    return true;
+  }
+  if (
+    contentType.includes("javascript") ||
+    contentType.includes("text/css") ||
+    contentType.includes("image/") ||
+    contentType.includes("font/") ||
+    contentType.includes("audio/") ||
+    contentType.includes("video/") ||
+    contentType.includes("application/json")
+  ) {
+    return true;
+  }
+  try {
+    const pathname = new URL(targetUrl).pathname.toLowerCase();
+    return /\.(?:js|mjs|css|map|png|jpe?g|gif|webp|svg|ico|woff2?|ttf|otf|mp4|webm|mp3|m4a|ogg|opus|wav|json)(?:$|\?)/i.test(pathname);
+  } catch {
+    return false;
+  }
+}
+
+function fallbackAssetResponse(req, targetUrl, contentType) {
+  const dest = String(req.headers["sec-fetch-dest"] || "").toLowerCase();
+  const accept = String(req.headers.accept || "").toLowerCase();
+  let pathname = "";
+  try {
+    pathname = new URL(targetUrl).pathname.toLowerCase();
+  } catch {}
+
+  if (dest === "script" || /\.(?:js|mjs)(?:$|\?)/i.test(pathname) || contentType.includes("javascript")) {
+    return {
+      status: 200,
+      headers: { "cache-control": "no-store", "content-type": "application/javascript; charset=utf-8" },
+      body: "",
+    };
+  }
+  if (dest === "style" || /\.css(?:$|\?)/i.test(pathname) || contentType.includes("text/css")) {
+    return {
+      status: 200,
+      headers: { "cache-control": "no-store", "content-type": "text/css; charset=utf-8" },
+      body: "",
+    };
+  }
+  if (
+    dest === "font" ||
+    /\.(?:woff2?|ttf|otf)(?:$|\?)/i.test(pathname) ||
+    contentType.includes("font/")
+  ) {
+    return {
+      status: 200,
+      headers: { "cache-control": "no-store", "content-type": "font/woff2" },
+      body: Buffer.alloc(0),
+    };
+  }
+  if (
+    /\.json(?:$|\?)/i.test(pathname) ||
+    accept.includes("application/json") ||
+    contentType.includes("application/json")
+  ) {
+    return {
+      status: 200,
+      headers: { "cache-control": "no-store", "content-type": "application/json; charset=utf-8" },
+      body: "{}",
+    };
+  }
+  return {
+    status: 204,
+    headers: { "cache-control": "no-store" },
+    body: undefined,
+  };
 }
 
 function isNonCriticalYouTubeApiPath(pathname) {
@@ -229,9 +324,9 @@ function rewriteDuckAiScript(source, resourceUrl) {
     if (host !== "duck.ai" && !host.endsWith(".duck.ai")) return source;
     const root = `${PREFIX}${encode(`${u.origin}/`)}`;
     return source
-      .replace(/(["'`])\/dist\/duckai-dist\//g, `$1${root}dist/duckai-dist/`)
-      .replace(/(["'`])\/dist\/locale\//g, `$1${root}dist/locale/`)
-      .replace(/(["'`])\/country\.json/g, `$1${root}country.json`);
+      .replace(/(["'`])\/dist\/duckai-dist\//g, `$1${root}/dist/duckai-dist/`)
+      .replace(/(["'`])\/dist\/locale\//g, `$1${root}/dist/locale/`)
+      .replace(/(["'`])\/country\.json/g, `$1${root}/country.json`);
   } catch {
     return source;
   }
@@ -244,9 +339,9 @@ function rewriteDuckDuckGoScript(source, resourceUrl) {
     if (host !== "duckduckgo.com" && !host.endsWith(".duckduckgo.com")) return source;
     const root = `${PREFIX}${encode(`${u.origin}/`)}`;
     return source
-      .replace(/(["'`])\/dist\//g, `$1${root}dist/`)
-      .replace(/(["'`])\/_next\//g, `$1${root}_next/`)
-      .replace(/(["'`])\/country\.json/g, `$1${root}country.json`);
+      .replace(/(["'`])\/dist\//g, `$1${root}/dist/`)
+      .replace(/(["'`])\/_next\//g, `$1${root}/_next/`)
+      .replace(/(["'`])\/country\.json/g, `$1${root}/country.json`);
   } catch {
     return source;
   }
@@ -787,10 +882,17 @@ export async function handleProxy(req, res, url) {
 
     if (response.status >= 400 && isNonCriticalFailure(req, targetUrl)) {
       response.body.resume();
-      const quietHeaders = { "cache-control": "no-store" };
-      if (ct.includes("application/json")) quietHeaders["content-type"] = "application/json; charset=utf-8";
-      res.writeHead(quietHeaders["content-type"] ? 200 : 204, quietHeaders);
-      res.end(quietHeaders["content-type"] ? "{}" : undefined);
+      const fallback = fallbackAssetResponse(req, targetUrl, ct);
+      res.writeHead(fallback.status, fallback.headers);
+      res.end(fallback.body);
+      return;
+    }
+
+    if (ct.includes("text/html") && isAssetRequest(req, targetUrl, ct)) {
+      response.body.resume();
+      const fallback = fallbackAssetResponse(req, targetUrl, ct);
+      res.writeHead(fallback.status, fallback.headers);
+      res.end(fallback.body);
       return;
     }
 
@@ -893,13 +995,15 @@ export async function handleProxy(req, res, url) {
       }
     }
     if (isRecoverableSocketError(err) && isNonCriticalFailure(req, targetUrl)) {
-      if (!res.headersSent) res.writeHead(204);
-      res.end();
+      const fallback = fallbackAssetResponse(req, targetUrl, "");
+      if (!res.headersSent) res.writeHead(fallback.status, fallback.headers);
+      res.end(fallback.body);
       return;
     }
     if (targetUrl && isNonCriticalFailure(req, targetUrl)) {
-      if (!res.headersSent) res.writeHead(204);
-      res.end();
+      const fallback = fallbackAssetResponse(req, targetUrl, "");
+      if (!res.headersSent) res.writeHead(fallback.status, fallback.headers);
+      res.end(fallback.body);
       return;
     }
     errorResponse(res, 502, "Connection Failed", err.message, targetUrl);
