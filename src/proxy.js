@@ -829,9 +829,15 @@ export async function handleProxy(req, res, url) {
       return;
     }
 
-    if (response.status >= 500 && isDocumentRequest(req)) {
+    if (response.status >= 500) {
       response.body.resume();
-      redirectToErrorPage(res, targetUrl);
+      if (isDocumentRequest(req)) {
+        redirectToErrorPage(res, targetUrl);
+        return;
+      }
+      const fallback = fallbackAssetResponse(req, targetUrl, ct);
+      res.writeHead(fallback.status, fallback.headers);
+      res.end(fallback.body);
       return;
     }
 
@@ -955,6 +961,12 @@ export async function handleProxy(req, res, url) {
     }
     if (targetUrl && isDocumentRequest(req)) {
       redirectToErrorPage(res, targetUrl);
+      return;
+    }
+    if (targetUrl) {
+      const fallback = fallbackAssetResponse(req, targetUrl, "");
+      if (!res.headersSent) res.writeHead(fallback.status, fallback.headers);
+      res.end(fallback.body);
       return;
     }
     errorResponse(res, 502, "Connection Failed", err.message, targetUrl);
