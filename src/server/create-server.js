@@ -30,9 +30,23 @@ export function createNavionCoreServer(options = {}) {
       return;
     }
 
-    if (url.pathname === "/generate_204" || url.pathname === "/favicon.ico") {
-      res.writeHead(204, { "Cache-Control": "no-store" });
-      res.end();
+    if (url.pathname === "/generate_204") {
+      res.writeHead(200, {
+        "Cache-Control": "no-store",
+        "Content-Type": "text/plain; charset=utf-8",
+        "Content-Length": "0",
+      });
+      res.end("");
+      return;
+    }
+
+    if (url.pathname === "/favicon.ico") {
+      res.writeHead(200, {
+        "Cache-Control": "no-store",
+        "Content-Type": "image/x-icon",
+        "Content-Length": "0",
+      });
+      res.end("");
       return;
     }
 

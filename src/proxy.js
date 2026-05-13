@@ -689,11 +689,19 @@ export async function handleProxy(req, res, url) {
   const isYouTubeApi = isYouTubeHost && target.pathname.startsWith("/youtubei/");
   const isYouTubeTelemetry = isYouTubeHost && isNonCriticalYouTubeTelemetryPath(target.pathname);
   const isDuckDuckGoTelemetry = isDuckDuckGoTelemetryHost(host) && isDuckDuckGoTelemetryPath(target.pathname);
+  const navRequest = isDocumentRequest(req);
   if (isDroppedTelemetryTarget(host, target.pathname)) {
-    const quietHeaders = { "cache-control": "no-store" };
+    if (navRequest) {
+      const fallback = fallbackAssetResponse(req, targetUrl, "");
+      if (setSessionCookie) fallback.headers["set-cookie"] = navionSessionCookieValue(sessionId);
+      res.writeHead(fallback.status, fallback.headers);
+      res.end(fallback.body);
+      return;
+    }
+    const quietHeaders = { "cache-control": "no-store", "content-type": "text/plain; charset=utf-8", "content-length": "0" };
     if (setSessionCookie) quietHeaders["set-cookie"] = navionSessionCookieValue(sessionId);
-    res.writeHead(204, quietHeaders);
-    res.end();
+    res.writeHead(200, quietHeaders);
+    res.end("");
     return;
   }
   const isAccountsYouTubeHealthProbe = isAccountsYouTubeProbe(host, target.pathname);
@@ -702,25 +710,27 @@ export async function handleProxy(req, res, url) {
     (isYouTubeHost || host === "ytimg.com" || host.endsWith(".ytimg.com"));
   const upstreamCookie = buildUpstreamCookieHeader(sessionId, host);
   if (upstreamCookie) fwdHeaders.cookie = upstreamCookie;
-  if (isYouTubeGenerate204) {
-    const quickHeaders = { "cache-control": "no-store" };
-    if (setSessionCookie) quickHeaders["set-cookie"] = navionSessionCookieValue(sessionId);
-    res.writeHead(204, quickHeaders);
-    res.end();
-    return;
-  }
+    if (isYouTubeGenerate204) {
+      const quickHeaders = { "cache-control": "no-store" };
+      if (setSessionCookie) quickHeaders["set-cookie"] = navionSessionCookieValue(sessionId);
+      quickHeaders["content-type"] = "text/plain; charset=utf-8";
+      quickHeaders["content-length"] = "0";
+      res.writeHead(200, quickHeaders);
+      res.end("");
+      return;
+    }
   if (isYouTubeTelemetry) {
-    const quietHeaders = { "cache-control": "no-store" };
+    const quietHeaders = { "cache-control": "no-store", "content-type": "text/plain; charset=utf-8", "content-length": "0" };
     if (setSessionCookie) quietHeaders["set-cookie"] = navionSessionCookieValue(sessionId);
-    res.writeHead(204, quietHeaders);
-    res.end();
+    res.writeHead(200, quietHeaders);
+    res.end("");
     return;
   }
   if (isDuckDuckGoTelemetry || isAccountsYouTubeHealthProbe) {
-    const quietHeaders = { "cache-control": "no-store" };
+    const quietHeaders = { "cache-control": "no-store", "content-type": "text/plain; charset=utf-8", "content-length": "0" };
     if (setSessionCookie) quietHeaders["set-cookie"] = navionSessionCookieValue(sessionId);
-    res.writeHead(204, quietHeaders);
-    res.end();
+    res.writeHead(200, quietHeaders);
+    res.end("");
     return;
   }
 
@@ -773,10 +783,10 @@ export async function handleProxy(req, res, url) {
     const body = (method !== "GET" && method !== "HEAD") ? await getReqBody(req) : undefined;
 
     if (isYouTubeApi && isNonCriticalYouTubeApiPath(target.pathname)) {
-      const quietHeaders = { "cache-control": "no-store" };
+      const quietHeaders = { "cache-control": "no-store", "content-type": "text/plain; charset=utf-8", "content-length": "0" };
       if (setSessionCookie) quietHeaders["set-cookie"] = navionSessionCookieValue(sessionId);
-      res.writeHead(204, quietHeaders);
-      res.end();
+      res.writeHead(200, quietHeaders);
+      res.end("");
       return;
     }
 
@@ -798,10 +808,10 @@ export async function handleProxy(req, res, url) {
       response.status < 500
     ) {
       response.body.resume();
-      const quietHeaders = { "cache-control": "no-store" };
+      const quietHeaders = { "cache-control": "no-store", "content-type": "text/plain; charset=utf-8", "content-length": "0" };
       if (setSessionCookie) quietHeaders["set-cookie"] = navionSessionCookieValue(sessionId);
-      res.writeHead(204, quietHeaders);
-      res.end();
+      res.writeHead(200, quietHeaders);
+      res.end("");
       return;
     }
     const ct = (response.headers["content-type"] || "").toLowerCase();
