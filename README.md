@@ -66,7 +66,7 @@ All UI/shell routes now live in `Navion-App`.
 Install from npm after publishing:
 
 ```bash
-npm install navion
+npm install navion-core
 ```
 
 Install from a local checkout:
