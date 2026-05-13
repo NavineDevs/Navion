@@ -202,6 +202,22 @@ function fallbackAssetResponse(req, targetUrl, contentType) {
   };
 }
 
+function isDocumentRequest(req) {
+  const dest = String(req.headers["sec-fetch-dest"] || "").toLowerCase();
+  if (dest === "document" || dest === "iframe" || dest === "frame") return true;
+  const mode = String(req.headers["sec-fetch-mode"] || "").toLowerCase();
+  const accept = String(req.headers.accept || "").toLowerCase();
+  return mode === "navigate" || accept.includes("text/html") || accept.includes("application/xhtml+xml");
+}
+
+function redirectToErrorPage(res, targetUrl) {
+  const location = targetUrl ? `/nav/error?u=${encodeURIComponent(encode(targetUrl))}` : "/nav/error";
+  if (!res.headersSent) {
+    res.writeHead(302, { Location: location, "Cache-Control": "no-store" });
+  }
+  res.end();
+}
+
 function isNonCriticalYouTubeApiPath(pathname) {
   return (
     pathname.startsWith("/youtubei/v1/log_event") ||
@@ -888,6 +904,12 @@ export async function handleProxy(req, res, url) {
       return;
     }
 
+    if (response.status >= 500 && isDocumentRequest(req)) {
+      response.body.resume();
+      redirectToErrorPage(res, targetUrl);
+      return;
+    }
+
     if (ct.includes("text/html") && isAssetRequest(req, targetUrl, ct)) {
       response.body.resume();
       const fallback = fallbackAssetResponse(req, targetUrl, ct);
@@ -1004,6 +1026,10 @@ export async function handleProxy(req, res, url) {
       const fallback = fallbackAssetResponse(req, targetUrl, "");
       if (!res.headersSent) res.writeHead(fallback.status, fallback.headers);
       res.end(fallback.body);
+      return;
+    }
+    if (targetUrl && isDocumentRequest(req)) {
+      redirectToErrorPage(res, targetUrl);
       return;
     }
     errorResponse(res, 502, "Connection Failed", err.message, targetUrl);
