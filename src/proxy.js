@@ -1,9 +1,7 @@
 import https from "node:https";
 import http from "node:http";
 import zlib from "node:zlib";
-import fs from "node:fs";
-import path from "node:path";
-import { URL, fileURLToPath } from "node:url";
+import { URL } from "node:url";
 import { decode, encode } from "./rewriters/url.js";
 import { rewriteHtml } from "./rewriters/html.js";
 import { rewriteJs } from "./rewriters/js.js";
@@ -22,9 +20,6 @@ const CACHE_ENTRY_MAX = NAVION_CORE_CONFIG.cache.entryMaxBytes;
 const CACHEABLE_CT = /^(image\/|font\/|text\/css|application\/javascript|text\/javascript)/;
 const SESSION_JARS = new Map();
 const SESSION_COOKIE_MAX_AGE = 60 * 60 * 24 * 30;
-const SESSION_STORE_FILE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", ".navion-sessions.json");
-let sessionStoreDirty = false;
-let sessionStoreFlushTimer = null;
 
 function cacheGet(key) {
   const e = CACHE.get(key);
@@ -524,70 +519,6 @@ function parseSetCookiePair(line) {
   return { name, value, domain, expired };
 }
 
-function scheduleSessionStoreFlush() {
-  sessionStoreDirty = true;
-  if (sessionStoreFlushTimer) return;
-  sessionStoreFlushTimer = setTimeout(() => {
-    sessionStoreFlushTimer = null;
-    if (!sessionStoreDirty) return;
-    sessionStoreDirty = false;
-    flushSessionStore();
-  }, 350);
-}
-
-function serializeSessionJars() {
-  const sessions = {};
-  for (const [sid, jar] of SESSION_JARS.entries()) {
-    const sessionObj = {};
-    for (const [domain, hostJar] of jar.entries()) {
-      const cookies = {};
-      for (const [name, value] of hostJar.entries()) cookies[name] = value;
-      if (Object.keys(cookies).length) sessionObj[domain] = cookies;
-    }
-    if (Object.keys(sessionObj).length) sessions[sid] = sessionObj;
-  }
-  return { version: 1, sessions };
-}
-
-function hydrateSessionJars(payload) {
-  if (!payload || typeof payload !== "object") return;
-  const sessions = payload.sessions;
-  if (!sessions || typeof sessions !== "object") return;
-  for (const [sid, domains] of Object.entries(sessions)) {
-    if (!sid || !domains || typeof domains !== "object") continue;
-    const sessionJar = new Map();
-    for (const [domain, cookieObj] of Object.entries(domains)) {
-      if (!domain || !cookieObj || typeof cookieObj !== "object") continue;
-      const hostJar = new Map();
-      for (const [cookieName, cookieValue] of Object.entries(cookieObj)) {
-        if (!cookieName) continue;
-        hostJar.set(cookieName, String(cookieValue));
-      }
-      if (hostJar.size) sessionJar.set(domain.toLowerCase(), hostJar);
-    }
-    if (sessionJar.size) SESSION_JARS.set(sid, sessionJar);
-  }
-}
-
-function flushSessionStore() {
-  try {
-    fs.writeFileSync(SESSION_STORE_FILE, JSON.stringify(serializeSessionJars()), "utf8");
-  } catch (error) {
-    console.error("[NAVION] Failed to persist session store:", error.message);
-  }
-}
-
-function loadSessionStore() {
-  if (!fs.existsSync(SESSION_STORE_FILE)) return;
-  try {
-    const raw = fs.readFileSync(SESSION_STORE_FILE, "utf8");
-    if (!raw) return;
-    hydrateSessionJars(JSON.parse(raw));
-  } catch (error) {
-    console.error("[NAVION] Failed to load session store:", error.message);
-  }
-}
-
 function storeResponseCookies(sid, host, setCookieHeader) {
   if (!setCookieHeader) return;
   const jar = getSessionJar(sid);
@@ -606,7 +537,6 @@ function storeResponseCookies(sid, host, setCookieHeader) {
     if (hostJar.size === 0) jar.delete(jarKey);
   }
   if (jar.size === 0) SESSION_JARS.delete(sid);
-  scheduleSessionStoreFlush();
 }
 
 function buildUpstreamCookieHeader(sid, host) {
@@ -622,11 +552,6 @@ function buildUpstreamCookieHeader(sid, host) {
   if (out.size === 0) return "";
   return Array.from(out.entries()).map(([k, v]) => `${k}=${v}`).join("; ");
 }
-
-loadSessionStore();
-process.on("beforeExit", flushSessionStore);
-process.on("SIGINT", flushSessionStore);
-process.on("SIGTERM", flushSessionStore);
 
 function buildOutHeaders(resHeaders) {
   const out = {
