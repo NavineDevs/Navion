@@ -1147,7 +1147,7 @@ export async function handleProxy(req, res, url) {
           htmlHost.endsWith(".duckduckgo.com")
         ) {
           injectRuntime = true;
-          runtimeMode = "lite";
+          runtimeMode = "lite-nav";
           rewriteMode = "full";
         } else if (
           htmlHost === "google.com" ||
