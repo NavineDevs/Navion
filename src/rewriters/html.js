@@ -38,10 +38,6 @@ const NAV_ONLY_TAG_ATTRS = {
   embed: new Set(["src"]),
 };
 
-function isPreloadAttrs(attrs) {
-  return /\srel(?:\s*=\s*(?:"[^"]*\b(?:preload|modulepreload)\b[^"]*"|'[^']*\b(?:preload|modulepreload)\b[^']*'|[^\s"'=<>`]*\b(?:preload|modulepreload)\b[^\s"'=<>`]*))?/i.test(attrs);
-}
-
 function splitSrcsetEntries(srcset) {
   const entries = [];
   let buf = "";
@@ -109,8 +105,6 @@ function normalizeSandboxValue(value) {
 function processAttrs(attrs, base, tagName, rewriteMode) {
   const isNavOnly = rewriteMode === "nav-only";
   const allowed = isNavOnly ? NAV_ONLY_TAG_ATTRS[tagName] : null;
-  const isPreloadLink = tagName === "link" && isPreloadAttrs(attrs);
-  let hasCrossorigin = false;
   let out = attrs.replace(
     /(\s+)([\w:-]+)(?:\s*=\s*(?:(["'])([\s\S]*?)\3|([^\s"'=<>`]+)))?/g,
     (m, sp, name, q, quotedVal, bareVal) => {
@@ -120,14 +114,7 @@ function processAttrs(attrs, base, tagName, rewriteMode) {
       const eq = hasValue ? "=" : "";
       const quote = q || "";
       const wrap = (next) => hasValue ? sp + name + eq + (quote ? quote + next + quote : next) : sp + name;
-      if (isPreloadLink && n === "crossorigin") {
-        hasCrossorigin = true;
-        return sp + name + `="use-credentials"`;
-      }
       if (!hasValue) return m;
-      if (tagName === "link" && n === "rel" && /\b(?:preload|modulepreload)\b/i.test(val)) {
-        return wrap(val.replace(/\bmodulepreload\b|\bpreload\b/gi, "prefetch"));
-      }
       if ((tagName === "iframe" || tagName === "frame") && n === "sandbox") {
         return wrap(normalizeSandboxValue(val));
       }
@@ -150,7 +137,6 @@ function processAttrs(attrs, base, tagName, rewriteMode) {
       return m;
     }
   );
-  if (isPreloadLink && !hasCrossorigin) out += ` crossorigin="use-credentials"`;
   if (tagName === "iframe" || tagName === "frame") {
     out = out.replace(/(\s+sandbox\s*=\s*)([^\s"'=<>`]+)/i, (m, pre, val) => {
       return pre + `"${normalizeSandboxValue(val)}"`;
@@ -208,7 +194,7 @@ const YOUTUBE_RECOVERY = (base) =>
 const DARK_MODE_HINT = `<meta name="color-scheme" content="dark"><style id="nv-dark-mode">html{color-scheme:dark!important}body{color-scheme:dark!important}</style>`;
 
 const INJECT = (base, mode) =>
-  mode === "navianime" ? DARK_MODE_HINT + `<script>!function(){var b=${JSON.stringify(base)};function n(t){try{return btoa(encodeURIComponent(t)).replace(/\\+/g,"-").replace(/\\//g,"_").replace(/=/g,"")}catch(e){return""}}function p(t){try{var r=new URL(t,b);if(r.origin===location.origin&&r.pathname.indexOf("/nv/")===0)return r.pathname+r.search+r.hash;return"/nv/"+n(r.origin+"/")+r.pathname+r.search+r.hash}catch(e){return t}}try{var u=new URL(b),h=u.pathname+u.search+u.hash;if(!h)h="/";if(location.pathname+location.search+location.hash!==h)history.replaceState(history.state,document.title,h)}catch(e){}function e(t){return String(t||"").replace(/[&<>"]/g,function(e){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[e]})}function s(){if(document.getElementById("nvna-style"))return;var c=document.createElement("style");c.id="nvna-style";c.textContent=".nvna{padding:32px;max-width:1180px;margin:0 auto}.nvna h1{font-size:32px;margin:0 0 6px}.nvna p{color:var(--muted-foreground,#8b92a6);margin:0 0 24px;line-height:1.6}.nvna-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:18px}.nvna-card{color:inherit;text-decoration:none;display:flex;flex-direction:column;gap:10px}.nvna-card img{width:100%;aspect-ratio:2/3;object-fit:cover;border-radius:10px;background:#111827}.nvna-card b{display:block;font-size:14px;line-height:1.3}.nvna-card small{display:block;color:var(--muted-foreground,#8b92a6);font-size:12px;margin-top:4px}.nvna-detail{display:grid;grid-template-columns:minmax(180px,260px) minmax(0,1fr);gap:28px}.nvna-detail img{width:100%;border-radius:12px;background:#111827}.nvna-back{display:inline-block;margin:0 0 22px;color:#38bdf8;text-decoration:none}.nvna-meta{color:var(--muted-foreground,#8b92a6)}@media(max-width:720px){.nvna{padding:22px}.nvna-detail{grid-template-columns:1fr}}";document.head.appendChild(c)}document.addEventListener("click",function(e){var t=e.target&&e.target.closest&&e.target.closest("a[href]");if(!t)return;var r=t.getAttribute("href");if(!r||r.indexOf("#")===0||r.indexOf("javascript:")===0)return;try{var q=new URL(r,location.href);if(q.origin===location.origin&&q.pathname.indexOf("/nv/")===0){e.preventDefault();e.stopImmediatePropagation();location.assign(q.pathname+q.search+q.hash);return}}catch(x){}if(r.indexOf("/nv/")===0){e.preventDefault();e.stopImmediatePropagation();location.assign(r);return}e.preventDefault();e.stopImmediatePropagation();location.assign(p(r))},true);function r(){var t=document.body&&document.body.innerText||"";if(!/Loading anime/i.test(t)||document.querySelector("img"))return;fetch("https://api.jikan.moe/v4/anime?page=1&limit=24&sfw=false&order_by=score&sort=desc").then(function(e){return e.ok?e.json():null}).then(function(t){var n=t&&t.data||[];if(!n.length)return;var a=document.querySelector("main")||document.body,o=n.map(function(t){var n=t.images&&t.images.jpg&&((t.images.jpg.large_image_url)||t.images.jpg.image_url)||"",a=t.title_english||t.title||"Anime",i=t.score||"",s=t.type||"",l=t.episodes?String(t.episodes)+" Eps":"",h=p("/anime/"+encodeURIComponent(String(t.mal_id||"")));return'<a class="nvna-card" href="'+e(h)+'">'+(n?'<img src="'+e(n)+'" alt="'+e(a)+'">':"")+'<span><b>'+e(a)+'</b><small>'+e([i,s,l].filter(Boolean).join(" • "))+'</small></span></a>'}).join("");a.innerHTML='<section class="nvna"><div><h1>Browse Anime</h1><p>Discover your next favorite series</p></div><div class="nvna-grid">'+o+'</div></section>';s()}).catch(function(){})}function d(){var m=(new URL(b)).pathname.match(/\\/anime\\/(\\d+)/);if(!m)return;var t=document.body&&document.body.innerText||"";if(!/404|not found|could not be found/i.test(t)&&document.querySelector("img"))return;fetch("https://api.jikan.moe/v4/anime/"+m[1]+"/full").then(function(e){return e.ok?e.json():null}).then(function(t){var n=t&&t.data;if(!n)return;var a=document.querySelector("main")||document.body,o=n.images&&n.images.jpg&&((n.images.jpg.large_image_url)||n.images.jpg.image_url)||"",i=n.title_english||n.title||"Anime",l=[n.score?n.score+" score":"",n.type||"",n.episodes?String(n.episodes)+" Eps":"",n.status||""].filter(Boolean).join(" • "),y=n.synopsis||"No synopsis available.";a.innerHTML='<section class="nvna"><a class="nvna-back" href="'+e(p("/browse"))+'">Back to Browse</a><div class="nvna-detail">'+(o?'<img src="'+e(o)+'" alt="'+e(i)+'">':"")+'<div><h1>'+e(i)+'</h1><p class="nvna-meta">'+e(l)+'</p><p>'+e(y)+'</p></div></div></section>';document.title=i+" - NaviAnime";s()}).catch(function(){})}setTimeout(r,3500);setTimeout(r,8000);setTimeout(d,1200);setTimeout(d,4000)}();</script>` :
+  mode === "navianime" ? DARK_MODE_HINT + `<script>!function(){var b=${JSON.stringify(base)};function n(t){try{return btoa(encodeURIComponent(t)).replace(/\\+/g,"-").replace(/\\//g,"_").replace(/=/g,"")}catch(e){return""}}function p(t){try{var r=new URL(t,b);if(r.origin===location.origin&&r.pathname.indexOf("/nv/")===0)return r.pathname+r.search+r.hash;return"/nv/"+n(r.origin+"/")+r.pathname+r.search+r.hash}catch(e){return t}}try{var u=new URL(b),h=u.pathname+u.search+u.hash;if(!h)h="/";if(location.pathname+location.search+location.hash!==h)history.replaceState(history.state,document.title,h)}catch(e){}function e(t){return String(t||"").replace(/[&<>"]/g,function(e){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[e]})}function s(){if(document.getElementById("nvna-style"))return;var c=document.createElement("style");c.id="nvna-style";c.textContent=".nvna{padding:32px;max-width:1180px;margin:0 auto}.nvna h1{font-size:32px;margin:0 0 6px}.nvna p{color:var(--muted-foreground,#8b92a6);margin:0 0 24px;line-height:1.6}.nvna-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:18px}.nvna-card{color:inherit;text-decoration:none;display:flex;flex-direction:column;gap:10px}.nvna-card img{width:100%;aspect-ratio:2/3;object-fit:cover;border-radius:10px;background:#111827}.nvna-card b{display:block;font-size:14px;line-height:1.3}.nvna-card small{display:block;color:var(--muted-foreground,#8b92a6);font-size:12px;margin-top:4px}.nvna-detail{display:grid;grid-template-columns:minmax(180px,260px) minmax(0,1fr);gap:28px}.nvna-detail img{width:100%;border-radius:12px;background:#111827}.nvna-back{display:inline-block;margin:0 0 22px;color:#38bdf8;text-decoration:none}.nvna-meta{color:var(--muted-foreground,#8b92a6)}@media(max-width:720px){.nvna{padding:22px}.nvna-detail{grid-template-columns:1fr}}";document.head.appendChild(c)}document.addEventListener("click",function(e){var t=e.target&&e.target.closest&&e.target.closest("a[href]");if(!t)return;var r=t.getAttribute("href");if(!r||r.indexOf("#")===0||r.indexOf("javascript:")===0)return;try{var q=new URL(r,location.href);if(q.origin===location.origin&&q.pathname.indexOf("/nv/")===0){e.preventDefault();e.stopImmediatePropagation();location.assign(q.pathname+q.search+q.hash);return}}catch(x){}if(r.indexOf("/nv/")===0){e.preventDefault();e.stopImmediatePropagation();location.assign(r);return}e.preventDefault();e.stopImmediatePropagation();location.assign(p(r))},true);function r(){var t=document.body&&document.body.innerText||"";if((!/Loading anime/i.test(t)&&!/Discover your next favorite series/i.test(t))||document.querySelector(".nvna-card,a[href*='/anime/']"))return;fetch("https://api.jikan.moe/v4/anime?page=1&limit=24&sfw=false&order_by=score&sort=desc").then(function(e){return e.ok?e.json():null}).then(function(t){var n=t&&t.data||[];if(!n.length)return;var a=document.querySelector("main")||document.body,o=n.map(function(t){var n=t.images&&t.images.jpg&&((t.images.jpg.large_image_url)||t.images.jpg.image_url)||"",a=t.title_english||t.title||"Anime",i=t.score||"",s=t.type||"",l=t.episodes?String(t.episodes)+" Eps":"",h=p("/anime/"+encodeURIComponent(String(t.mal_id||"")));return'<a class="nvna-card" href="'+e(h)+'">'+(n?'<img src="'+e(n)+'" alt="'+e(a)+'">':"")+'<span><b>'+e(a)+'</b><small>'+e([i,s,l].filter(Boolean).join(" • "))+'</small></span></a>'}).join("");a.innerHTML='<section class="nvna"><div><h1>Browse Anime</h1><p>Discover your next favorite series</p></div><div class="nvna-grid">'+o+'</div></section>';s()}).catch(function(){})}function d(){var m=(new URL(b)).pathname.match(/\\/anime\\/(\\d+)/);if(!m)return;var t=document.body&&document.body.innerText||"";if(!/404|not found|could not be found/i.test(t)&&document.querySelector(".nvna-detail"))return;fetch("https://api.jikan.moe/v4/anime/"+m[1]+"/full").then(function(e){return e.ok?e.json():null}).then(function(t){var n=t&&t.data;if(!n)return;var a=document.querySelector("main")||document.body,o=n.images&&n.images.jpg&&((n.images.jpg.large_image_url)||n.images.jpg.image_url)||"",i=n.title_english||n.title||"Anime",l=[n.score?n.score+" score":"",n.type||"",n.episodes?String(n.episodes)+" Eps":"",n.status||""].filter(Boolean).join(" • "),y=n.synopsis||"No synopsis available.";a.innerHTML='<section class="nvna"><a class="nvna-back" href="'+e(p("/browse"))+'">Back to Browse</a><div class="nvna-detail">'+(o?'<img src="'+e(o)+'" alt="'+e(i)+'">':"")+'<div><h1>'+e(i)+'</h1><p class="nvna-meta">'+e(l)+'</p><p>'+e(y)+'</p></div></div></section>';document.title=i+" - NaviAnime";s()}).catch(function(){})}setTimeout(r,1200);setTimeout(r,3000);setTimeout(r,6500);setTimeout(d,1200);setTimeout(d,4000)}();</script>` :
   mode === "mask" ? DARK_MODE_HINT + `<script>!function(){try{var u=new URL(${JSON.stringify(base)}),p=u.pathname+u.search+u.hash;if(!p)p="/";if(location.pathname+location.search+location.hash!==p)history.replaceState(history.state,document.title,p)}catch(e){}}();</script>` :
   DARK_MODE_HINT + `<script>!function(){` +
   `var _cw=console.warn,_ce=console.error,_cl=console.log;function _nf(a){try{var s=Array.prototype.join.call(a," ");return s.indexOf("The Chrome/Firefox/Safari extension cannot be detected on localhost")!==-1||s.indexOf("Navigator is not modified on localhost")!==-1||s.indexOf("Use ngrok to detect the extension")!==-1||s.indexOf("ChunkLoadError: Loading chunk")!==-1||s.indexOf("Loading chunk 2005 failed")!==-1||s.indexOf("useTranslation: SUBSCRIPTION_LINK_FOOTER is not available")!==-1||s.indexOf("working version is:")!==-1||s.indexOf("LegacyDataMixin will be applied to all legacy elements")!==-1||s.indexOf("_legacyUndefinedCheck: true")!==-1||s.indexOf("preloaded using link preload but not used")!==-1||s.indexOf("SES Removing unpermitted intrinsics")!==-1||s.indexOf("requestStorageAccessFor: Only supported")!==-1||s.indexOf("violates the following Content Security Policy directive")!==-1||s.indexOf("Refused to display")!==-1;}catch(e){return false}}console.warn=function(){if(_nf(arguments))return;return _cw.apply(console,arguments)};console.error=function(){if(_nf(arguments))return;return _ce.apply(console,arguments)};console.log=function(){if(_nf(arguments))return;return _cl.apply(console,arguments)};` +
@@ -227,8 +213,7 @@ const INJECT = (base, mode) =>
   `document.addEventListener("click",function(e){var el=e.target&&e.target.closest&&e.target.closest("a[href]");if(!el)return;var h=el.getAttribute("href");if(!h||h.startsWith("#")||h.startsWith("javascript:"))return;var p=c.rewrite(h,_base());if(p&&p!==h)el.setAttribute("href",p);},true);` +
   `document.addEventListener("submit",function(e){var f=e.target;if(!f||!f.action)return;var p=c.rewrite(f.action,_base());if(p&&p!==f.action)f.action=p;},true);` +
   `}();</script>` +
-  (mode === "youtube" ? "" : `<script src="/nv.client.js?v=4.2.42"></script>`) +
-  (mode === "youtube" ? YOUTUBE_FALLBACK(base) + YOUTUBE_RECOVERY(base) : "");
+  `<script src="/nv.client.js?v=4.2.42"></script>`;
 
 export function rewriteHtml(html, base, options = {}) {
   const injectRuntime = options.injectRuntime !== false;
@@ -311,22 +296,6 @@ export function rewriteHtml(html, base, options = {}) {
     if (tag === "base") {
       const m = inner.match(/\shref\s*=\s*(["'])([^"']*)\1/i);
       if (m) try { base = new URL(m[2], base).href; } catch {}
-    }
-
-    if (runtimeMode === "youtube" && tag === "script") {
-      const closeStart = html.toLowerCase().indexOf("</script", tagEnd + 1);
-      if (closeStart === -1) {
-        i = tagEnd + 1;
-        continue;
-      }
-      const closeEnd = findTagEnd(html, closeStart + 1);
-      i = closeEnd === -1 ? closeStart : closeEnd + 1;
-      continue;
-    }
-
-    if (runtimeMode === "youtube" && (tag === "iframe" || tag === "frame") && /accounts\.google\.com|googleads\.g\.doubleclick\.net/i.test(inner)) {
-      i = tagEnd + 1;
-      continue;
     }
 
     const attrStr = inner.slice(nm?.[0]?.length ?? 0);
