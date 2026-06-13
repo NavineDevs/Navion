@@ -66,7 +66,7 @@ All UI/shell routes now live in `Navion-App`.
 Install from npm after publishing:
 
 ```bash
-npm install navion-core
+npm install navion
 ```
 
 Install from a local checkout:
@@ -117,7 +117,7 @@ If you want a feature but do not want external packages, build small internal mo
 2. Create a local module in `src/` (example: `src/internal/cookies.js`) with a tiny API.
 3. Write plain Node/browser code only (no npm dependency).
 4. Keep it replaceable: one file, pure functions, input/output tests with real proxy traffic.
-5. Version your internal module yourself using comments/changelog and reuse it across core/app.
+5. Version your internal module through `package.json`, changelog notes, and reuse it across core/app.
 
 Example pattern:
 

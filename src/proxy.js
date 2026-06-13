@@ -1,6 +1,8 @@
 import https from "node:https";
 import http from "node:http";
 import zlib from "node:zlib";
+import fs from "node:fs";
+import path from "node:path";
 import { URL } from "node:url";
 import { decode, encode } from "./rewriters/url.js";
 import { rewriteHtml } from "./rewriters/html.js";
@@ -20,6 +22,9 @@ const CACHE_ENTRY_MAX = NAVION_CORE_CONFIG.cache.entryMaxBytes;
 const CACHEABLE_CT = /^(image\/|font\/|text\/css|application\/javascript|text\/javascript)/;
 const SESSION_JARS = new Map();
 const SESSION_COOKIE_MAX_AGE = 60 * 60 * 24 * 30;
+const COOKIE_STORE_PATH = path.join(process.cwd(), ".navion-cookies.json");
+let cookieStoreLoaded = false;
+let cookieStoreSaveTimer = null;
 
 function cacheGet(key) {
   const e = CACHE.get(key);
@@ -102,7 +107,64 @@ function isNonCriticalFailure(req, targetUrl) {
   );
 }
 
+function decodeNestedUrl(value) {
+  if (!value) return null;
+  let out = String(value).replace(/(?:&amp;|&)rut=[^&]+$/i, "").replace(/&amp;/g, "&");
+  for (let i = 0; i < 4; i++) {
+    try {
+      const next = decodeURIComponent(out);
+      if (next === out) break;
+      out = next.replace(/(?:&amp;|&)rut=[^&]+$/i, "").replace(/&amp;/g, "&");
+    } catch {
+      break;
+    }
+  }
+  return /^https?:\/\//i.test(out) ? out : null;
+}
+
+function normalizeTargetUrl(targetUrl) {
+  try {
+    const target = new URL(targetUrl);
+    const host = target.hostname.toLowerCase();
+    if (
+      (host === "duckduckgo.com" || host === "www.duckduckgo.com" || host === "html.duckduckgo.com") &&
+      (target.pathname === "/ai" || target.pathname.startsWith("/ai/"))
+    ) {
+      const aiUrl = new URL("https://duck.ai/");
+      aiUrl.pathname = target.pathname === "/ai" ? "/" : target.pathname.slice(3) || "/";
+      aiUrl.search = target.search;
+      aiUrl.hash = target.hash;
+      return aiUrl.href;
+    }
+    if (
+      (host === "duckduckgo.com" || host === "www.duckduckgo.com" || host === "html.duckduckgo.com") &&
+      target.pathname === "/l/"
+    ) {
+      const destination = decodeNestedUrl(target.searchParams.get("uddg"));
+      if (destination) return destination;
+    }
+  } catch {}
+  return targetUrl;
+}
+
+function decodeProxyPathTarget(pathname, search = "") {
+  if (!pathname || !pathname.startsWith(PREFIX)) return null;
+  const rawPath = pathname.slice(PREFIX.length);
+  if (!rawPath) return null;
+  const slash = rawPath.indexOf("/");
+  let rawToken = slash < 0 ? rawPath : rawPath.slice(0, slash);
+  const suffix = slash < 0 ? "" : rawPath.slice(slash);
+  try { rawToken = decodeURIComponent(rawToken); } catch {}
+  const decoded = /^https?:\/\//i.test(rawToken) ? rawToken : decode(rawToken);
+  if (!/^https?:\/\//i.test(decoded)) return null;
+  const target = new URL(decoded);
+  if (suffix) target.pathname = target.pathname.replace(/\/?$/, "") + decodeURI(suffix);
+  if (search) target.search = search;
+  return target.href;
+}
+
 function isAssetRequest(req, targetUrl, contentType = "") {
+  if (isDocumentRequest(req)) return false;
   const dest = String(req.headers["sec-fetch-dest"] || "").toLowerCase();
   if (
     dest === "script" ||
@@ -257,6 +319,7 @@ function shouldBypassJsRewrite(resourceUrl) {
       host === "googleapis.com" ||
       host.endsWith(".googleapis.com");
 
+    if (u.pathname.startsWith("/_next/static/")) return true;
     if (isYouTubeFamily) return true;
     if (isGoogleIdentityFamily) return true;
     return false;
@@ -393,7 +456,7 @@ function rawFetch(targetUrl, options, redirectCount = 0) {
       method: options.method || "GET",
       headers: options.headers || {},
       agent: isHttps ? httpsAgent : httpAgent,
-      timeout: NAVION_CORE_CONFIG.fetch.timeoutMs,
+      timeout: options.timeoutMs || NAVION_CORE_CONFIG.fetch.timeoutMs,
     }, (res) => {
       const { statusCode: status, headers } = res;
       const location = headers["location"];
@@ -476,16 +539,126 @@ function navionSessionCookieValue(sessionId) {
   return `nv_sid=${sessionId}; Path=/; SameSite=Lax; HttpOnly; Max-Age=${SESSION_COOKIE_MAX_AGE}`;
 }
 
+function serializeCookieJars() {
+  const out = {};
+  for (const [sid, jar] of SESSION_JARS.entries()) {
+    out[sid] = {};
+    for (const [domain, domainJar] of jar.entries()) {
+      out[sid][domain] = {};
+      for (const [cookiePath, pathJar] of domainJar.entries()) {
+        out[sid][domain][cookiePath] = Object.fromEntries(pathJar.entries());
+      }
+    }
+  }
+  return out;
+}
+
+function loadCookieStore() {
+  if (cookieStoreLoaded) return;
+  cookieStoreLoaded = true;
+  try {
+    const raw = fs.readFileSync(COOKIE_STORE_PATH, "utf8");
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return;
+    for (const [sid, domains] of Object.entries(parsed)) {
+      if (!sid || !domains || typeof domains !== "object") continue;
+      const jar = new Map();
+      for (const [domain, paths] of Object.entries(domains)) {
+        if (!domain || !paths || typeof paths !== "object") continue;
+        const domainJar = new Map();
+        const legacyValues = Object.values(paths);
+        const legacyFlat = legacyValues.some((value) => typeof value === "string");
+        if (legacyFlat) {
+          const pathJar = new Map();
+          for (const [name, value] of Object.entries(paths)) {
+            if (name && typeof value === "string") {
+              pathJar.set(name, { name, value, domain, path: "/", hostOnly: false, expires: 0, secure: false, httpOnly: false, sameSite: "" });
+            }
+          }
+          if (pathJar.size) domainJar.set("/", pathJar);
+        } else {
+          for (const [cookiePath, cookies] of Object.entries(paths)) {
+            if (!cookiePath || !cookies || typeof cookies !== "object") continue;
+            const pathJar = new Map();
+            for (const [name, cookie] of Object.entries(cookies)) {
+              if (!name || !cookie || typeof cookie !== "object" || typeof cookie.value !== "string") continue;
+              pathJar.set(name, {
+                name,
+                value: cookie.value,
+                domain: String(cookie.domain || domain).toLowerCase().replace(/^\./, ""),
+                path: String(cookie.path || cookiePath || "/"),
+                hostOnly: Boolean(cookie.hostOnly),
+                expires: Number(cookie.expires || 0),
+                secure: Boolean(cookie.secure),
+                httpOnly: Boolean(cookie.httpOnly),
+                sameSite: String(cookie.sameSite || ""),
+              });
+            }
+            if (pathJar.size) domainJar.set(cookiePath, pathJar);
+          }
+        }
+        if (domainJar.size) jar.set(domain.toLowerCase().replace(/^\./, ""), domainJar);
+      }
+      if (jar.size) SESSION_JARS.set(sid, jar);
+    }
+  } catch {}
+}
+
+function saveCookieStoreSoon() {
+  if (cookieStoreSaveTimer) return;
+  cookieStoreSaveTimer = setTimeout(() => {
+    cookieStoreSaveTimer = null;
+    try {
+      fs.writeFileSync(COOKIE_STORE_PATH, JSON.stringify(serializeCookieJars()), "utf8");
+    } catch {}
+  }, 250);
+}
+
 function getSessionJar(sid) {
+  loadCookieStore();
   let jar = SESSION_JARS.get(sid);
   if (!jar) {
     jar = new Map();
     SESSION_JARS.set(sid, jar);
+    saveCookieStoreSoon();
   }
   return jar;
 }
 
-function parseSetCookiePair(line) {
+function defaultCookiePath(pathname) {
+  if (!pathname || pathname[0] !== "/") return "/";
+  const idx = pathname.lastIndexOf("/");
+  if (idx <= 0) return "/";
+  return pathname.slice(0, idx);
+}
+
+function domainMatchesCookie(host, domain, hostOnly) {
+  const h = String(host || "").toLowerCase();
+  const d = String(domain || "").toLowerCase().replace(/^\./, "");
+  if (!h || !d) return false;
+  if (hostOnly) return h === d;
+  return h === d || h.endsWith(`.${d}`);
+}
+
+function pathMatchesCookie(requestPath, cookiePath) {
+  const reqPath = requestPath || "/";
+  const cPath = cookiePath || "/";
+  if (reqPath === cPath) return true;
+  if (!reqPath.startsWith(cPath)) return false;
+  if (cPath.endsWith("/")) return true;
+  return reqPath.charAt(cPath.length) === "/";
+}
+
+function cookieTarget(input) {
+  try {
+    const u = /^https?:\/\//i.test(String(input)) ? new URL(input) : new URL(`https://${input}/`);
+    return { host: u.hostname.toLowerCase(), path: u.pathname || "/", protocol: u.protocol };
+  } catch {
+    return { host: String(input || "").toLowerCase(), path: "/", protocol: "https:" };
+  }
+}
+
+function parseSetCookiePair(line, requestHost, requestPath) {
   if (!line) return null;
   const parts = String(line).split(";").map((p) => p.trim());
   const first = parts[0];
@@ -494,61 +667,123 @@ function parseSetCookiePair(line) {
   const name = first.slice(0, i).trim();
   const value = first.slice(i + 1).trim();
   if (!name) return null;
-  let domain = "";
+  let domain = requestHost;
+  let hostOnly = true;
+  let path = defaultCookiePath(requestPath);
+  let expires = 0;
+  let secure = false;
+  let httpOnly = false;
+  let sameSite = "";
   let expired = false;
   for (let idx = 1; idx < parts.length; idx++) {
     const part = parts[idx];
     const eq = part.indexOf("=");
     const key = (eq === -1 ? part : part.slice(0, eq)).trim().toLowerCase();
-    const value = eq === -1 ? "" : part.slice(eq + 1).trim();
+    const attrValue = eq === -1 ? "" : part.slice(eq + 1).trim();
     if (key === "domain") {
-      domain = value.replace(/^\./, "").toLowerCase();
+      const nextDomain = attrValue.replace(/^\./, "").toLowerCase();
+      if (!domainMatchesCookie(requestHost, nextDomain, false)) return null;
+      domain = nextDomain;
+      hostOnly = false;
+      continue;
+    }
+    if (key === "path") {
+      path = attrValue && attrValue[0] === "/" ? attrValue : defaultCookiePath(requestPath);
       continue;
     }
     if (key === "max-age") {
-      const maxAge = Number(value);
-      if (!Number.isNaN(maxAge) && maxAge <= 0) expired = true;
+      const maxAge = Number(attrValue);
+      if (!Number.isNaN(maxAge)) {
+        if (maxAge <= 0) expired = true;
+        else expires = Date.now() + (maxAge * 1000);
+      }
       continue;
     }
     if (key === "expires") {
-      const expTime = Date.parse(value);
-      if (!Number.isNaN(expTime) && expTime <= Date.now()) expired = true;
+      const expTime = Date.parse(attrValue);
+      if (!Number.isNaN(expTime)) {
+        if (expTime <= Date.now()) expired = true;
+        else expires = expTime;
+      }
+      continue;
+    }
+    if (key === "secure") {
+      secure = true;
+      continue;
+    }
+    if (key === "httponly") {
+      httpOnly = true;
+      continue;
+    }
+    if (key === "samesite") {
+      sameSite = attrValue;
       continue;
     }
   }
-  return { name, value, domain, expired };
+  return { name, value, domain, path, hostOnly, expires, secure, httpOnly, sameSite, expired };
 }
 
-function storeResponseCookies(sid, host, setCookieHeader) {
+function storeResponseCookies(sid, targetUrl, setCookieHeader) {
   if (!setCookieHeader) return;
+  const target = cookieTarget(targetUrl);
   const jar = getSessionJar(sid);
   const list = Array.isArray(setCookieHeader) ? setCookieHeader : [setCookieHeader];
   for (const line of list) {
-    const pair = parseSetCookiePair(line);
+    const pair = parseSetCookiePair(line, target.host, target.path);
     if (!pair) continue;
-    const jarKey = (pair.domain || host).toLowerCase();
-    let hostJar = jar.get(jarKey);
-    if (!hostJar) {
-      hostJar = new Map();
-      jar.set(jarKey, hostJar);
+    const jarKey = pair.domain.toLowerCase().replace(/^\./, "");
+    let domainJar = jar.get(jarKey);
+    if (!domainJar) {
+      domainJar = new Map();
+      jar.set(jarKey, domainJar);
     }
-    if (pair.expired) hostJar.delete(pair.name);
-    else hostJar.set(pair.name, pair.value);
-    if (hostJar.size === 0) jar.delete(jarKey);
+    let pathJar = domainJar.get(pair.path);
+    if (!pathJar) {
+      pathJar = new Map();
+      domainJar.set(pair.path, pathJar);
+    }
+    if (pair.expired) pathJar.delete(pair.name);
+    else pathJar.set(pair.name, pair);
+    if (pathJar.size === 0) domainJar.delete(pair.path);
+    if (domainJar.size === 0) jar.delete(jarKey);
   }
   if (jar.size === 0) SESSION_JARS.delete(sid);
+  saveCookieStoreSoon();
 }
 
-function buildUpstreamCookieHeader(sid, host) {
+function buildUpstreamCookieHeader(sid, targetUrl) {
+  loadCookieStore();
   const jar = SESSION_JARS.get(sid);
   if (!jar) return "";
-  const hostLower = host.toLowerCase();
+  const target = cookieTarget(targetUrl);
+  const now = Date.now();
+  let dirty = false;
 
   const out = new Map();
-  for (const [domain, hostJar] of jar.entries()) {
-    if (!(hostLower === domain || hostLower.endsWith(`.${domain}`))) continue;
-    for (const [k, v] of hostJar.entries()) out.set(k, v);
+  for (const [domain, domainJar] of jar.entries()) {
+    for (const [cookiePath, pathJar] of domainJar.entries()) {
+      if (!pathMatchesCookie(target.path, cookiePath)) continue;
+      for (const [name, cookie] of pathJar.entries()) {
+        if (!domainMatchesCookie(target.host, cookie.domain || domain, cookie.hostOnly)) continue;
+        if (cookie.expires && cookie.expires <= now) {
+          pathJar.delete(name);
+          dirty = true;
+          continue;
+        }
+        if (cookie.secure && target.protocol !== "https:") continue;
+        out.set(name, cookie.value);
+      }
+      if (pathJar.size === 0) {
+        domainJar.delete(cookiePath);
+        dirty = true;
+      }
+    }
+    if (domainJar.size === 0) {
+      jar.delete(domain);
+      dirty = true;
+    }
   }
+  if (dirty) saveCookieStoreSoon();
   if (out.size === 0) return "";
   return Array.from(out.entries()).map(([k, v]) => `${k}=${v}`).join("; ");
 }
@@ -564,6 +799,19 @@ function buildOutHeaders(resHeaders) {
     if (!DROP_RES.has(k.toLowerCase())) out[k] = v;
   }
   delete out["set-cookie"];
+  return out;
+}
+
+function headersWithoutSessionCookie(headers) {
+  const out = { ...headers };
+  delete out["set-cookie"];
+  delete out["Set-Cookie"];
+  return out;
+}
+
+function headersWithSessionCookie(headers, sessionId, shouldSetCookie) {
+  const out = { ...headers };
+  if (shouldSetCookie) out["set-cookie"] = navionSessionCookieValue(sessionId);
   return out;
 }
 
@@ -654,7 +902,7 @@ export async function handleProxy(req, res, url) {
 
   let targetUrl;
   try {
-    targetUrl = decode(encoded);
+    targetUrl = normalizeTargetUrl(decode(encoded));
     const { protocol } = new URL(targetUrl);
     if (protocol !== "http:" && protocol !== "https:") throw 0;
   } catch {
@@ -674,7 +922,8 @@ export async function handleProxy(req, res, url) {
       try {
         const ref = new URL(value);
         if (ref.pathname.startsWith(PREFIX)) {
-          fwdHeaders["referer"] = decode(ref.pathname.slice(PREFIX.length).split("?")[0]);
+          const decodedRef = decodeProxyPathTarget(ref.pathname, ref.search);
+          if (decodedRef) fwdHeaders["referer"] = decodedRef;
         }
       } catch {}
       continue;
@@ -686,6 +935,10 @@ export async function handleProxy(req, res, url) {
   const host = target.hostname.toLowerCase();
   const isGoogleVideo = host === "googlevideo.com" || host.endsWith(".googlevideo.com");
   const isYouTubeHost = isYouTubeLikeHost(host);
+  if (isYouTubeHost && target.searchParams.has("themeRefresh")) {
+    target.searchParams.delete("themeRefresh");
+    targetUrl = target.href;
+  }
   const isYouTubeApi = isYouTubeHost && target.pathname.startsWith("/youtubei/");
   const isYouTubeTelemetry = isYouTubeHost && isNonCriticalYouTubeTelemetryPath(target.pathname);
   const isDuckDuckGoTelemetry = isDuckDuckGoTelemetryHost(host) && isDuckDuckGoTelemetryPath(target.pathname);
@@ -708,7 +961,7 @@ export async function handleProxy(req, res, url) {
   const isYouTubeGenerate204 =
     target.pathname === "/generate_204" &&
     (isYouTubeHost || host === "ytimg.com" || host.endsWith(".ytimg.com"));
-  const upstreamCookie = buildUpstreamCookieHeader(sessionId, host);
+  const upstreamCookie = buildUpstreamCookieHeader(sessionId, targetUrl);
   if (upstreamCookie) fwdHeaders.cookie = upstreamCookie;
     if (isYouTubeGenerate204) {
       const quickHeaders = { "cache-control": "no-store" };
@@ -753,7 +1006,7 @@ export async function handleProxy(req, res, url) {
     if (req.headers.range && !fwdHeaders.range) fwdHeaders.range = req.headers.range;
     if (req.headers["if-range"] && !fwdHeaders["if-range"]) fwdHeaders["if-range"] = req.headers["if-range"];
     fwdHeaders.accept = fwdHeaders.accept || "*/*";
-    const youtubeCookie = buildUpstreamCookieHeader(sessionId, "youtube.com");
+    const youtubeCookie = buildUpstreamCookieHeader(sessionId, "https://www.youtube.com/");
     if (youtubeCookie) fwdHeaders.cookie = youtubeCookie;
   }
 
@@ -763,11 +1016,6 @@ export async function handleProxy(req, res, url) {
     if (!fwdHeaders["content-type"]) fwdHeaders["content-type"] = "application/json";
     fwdHeaders.accept = "*/*";
   }
-
-  const isYouTubeThemeRefresh =
-    isYouTubeHost &&
-    target.pathname === "/" &&
-    target.searchParams.has("themeRefresh");
 
   if (!fwdHeaders.origin && fwdHeaders.referer) {
     const method = (req.method || "GET").toUpperCase();
@@ -793,14 +1041,16 @@ export async function handleProxy(req, res, url) {
     if (method === "GET") {
       const hit = cacheGet(targetUrl);
       if (hit) {
-        res.writeHead(hit.status, hit.headers);
+        res.writeHead(hit.status, headersWithSessionCookie(hit.headers, sessionId, setSessionCookie));
         res.end(hit.body);
         return;
       }
     }
 
-    const retryBudget = (isYouTubeHost || host.endsWith(".google.com") || host === "google.com" || isGoogleVideo) ? 3 : 1;
-    const response = await navionFetchWithRetry(targetUrl, { method, headers: fwdHeaders, body }, retryBudget);
+    const documentRequest = isDocumentRequest(req);
+    const requestTimeoutMs = documentRequest ? NAVION_CORE_CONFIG.fetch.timeoutMs : 7000;
+    const retryBudget = documentRequest && (isYouTubeHost || host.endsWith(".google.com") || host === "google.com" || isGoogleVideo) ? 2 : 0;
+    const response = await navionFetchWithRetry(targetUrl, { method, headers: fwdHeaders, body, timeoutMs: requestTimeoutMs }, retryBudget);
     if (
       isYouTubeApi &&
       isNonCriticalYouTubeApiPath(target.pathname) &&
@@ -817,7 +1067,7 @@ export async function handleProxy(req, res, url) {
     const ct = (response.headers["content-type"] || "").toLowerCase();
     const enc = response.headers["content-encoding"] || "";
     const finalUrl = response.url;
-    storeResponseCookies(sessionId, host, response.headers["set-cookie"]);
+    storeResponseCookies(sessionId, finalUrl || targetUrl, response.headers["set-cookie"]);
       const outHeaders = buildOutHeaders(response.headers);
       if (setSessionCookie) outHeaders["set-cookie"] = navionSessionCookieValue(sessionId);
       if (typeof outHeaders.location === "string") {
@@ -871,20 +1121,31 @@ export async function handleProxy(req, res, url) {
         return;
       }
       let injectRuntime = true;
-      let runtimeMode = "lite";
+      let runtimeMode = "mask";
       let rewriteMode = "full";
       try {
         const htmlHost = new URL(finalUrl).hostname.toLowerCase();
         if (
+          htmlHost === "navianime.vercel.app"
+        ) {
+          injectRuntime = true;
+          runtimeMode = "navianime";
+          rewriteMode = "full";
+        } else if (
           htmlHost === "youtube.com" ||
           htmlHost === "www.youtube.com" ||
           htmlHost === "m.youtube.com" ||
           htmlHost.endsWith(".youtube.com")
         ) {
           injectRuntime = true;
-          runtimeMode = "lite";
+          runtimeMode = "youtube";
           rewriteMode = "nav-only";
-        } else if (htmlHost === "duckduckgo.com" || htmlHost.endsWith(".duckduckgo.com")) {
+        } else if (
+          htmlHost === "duck.ai" ||
+          htmlHost.endsWith(".duck.ai") ||
+          htmlHost === "duckduckgo.com" ||
+          htmlHost.endsWith(".duckduckgo.com")
+        ) {
           injectRuntime = true;
           runtimeMode = "lite";
           rewriteMode = "full";
@@ -898,7 +1159,8 @@ export async function handleProxy(req, res, url) {
           rewriteMode = "full";
         }
       } catch {}
-      const out = rewriteHtml(text, finalUrl, { injectRuntime, runtimeMode, rewriteMode });
+      const htmlBase = isYouTubeHost ? targetUrl : finalUrl;
+      const out = rewriteHtml(text, htmlBase, { injectRuntime, runtimeMode, rewriteMode });
       outHeaders["content-type"] = "text/html; charset=utf-8";
       delete outHeaders["content-length"];
       res.writeHead(response.status, outHeaders);
@@ -943,13 +1205,13 @@ export async function handleProxy(req, res, url) {
     delete outHeaders["content-length"];
     const rawBuf = await collectStream(decompressStream(response.body, enc));
     if (CACHEABLE_CT.test(ct) && response.status === 200) {
-      cacheSet(targetUrl, response.status, outHeaders, rawBuf);
+      cacheSet(targetUrl, response.status, headersWithoutSessionCookie(outHeaders), rawBuf);
     }
     res.writeHead(response.status, outHeaders);
     res.end(rawBuf);
   } catch (err) {
     await runNavionHooks("onError", { req, res, targetUrl, error: err });
-    if (isYouTubeThemeRefresh) {
+    if (targetUrl && isYouTubeLikeHost(new URL(targetUrl).hostname.toLowerCase()) && new URL(targetUrl).searchParams.has("themeRefresh")) {
       const dest = String(req.headers["sec-fetch-dest"] || "").toLowerCase();
       if (dest !== "document" && dest !== "iframe" && dest !== "frame") {
         if (!res.headersSent) res.writeHead(204, { "Cache-Control": "no-store" });

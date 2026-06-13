@@ -11,8 +11,8 @@ build({
     entryPoints: {
         'nv.bundle': './nv-src/rewrite/index.js',
         'nv.client': './nv-src/client/index.js',
-        'nv.handler': './nv-src/uv.handler.js',
-        'nv.sw': './nv-src/uv.sw.js',
+        'nv.handler': './nv-src/nv.handler.js',
+        'nv.sw': './nv-src/nv.sw.js',
     },
     define: {
         'process.env.ULTRAVIOLET_VERSION': JSON.stringify(process.env.NAVION_VERSION),
