@@ -10,6 +10,7 @@ const URL_ATTRS = new Set([
   "data-background", "data-bg", "data-poster", "data-iframe-src",
   "data-video", "data-file", "data-stream", "data-source", "data-mp4",
   "data-webm", "data-hls", "data-m3u8", "data-player", "data-embed",
+  "data-id", "data-link", "data-target",
 ]);
 const SRCSET_ATTRS = new Set(["srcset", "imagesrcset", "data-srcset"]);
 const EVENT_ATTR_RE = /^on[a-z][\w:-]*$/i;
@@ -232,7 +233,7 @@ const INJECT = (base, mode) =>
   `document.addEventListener("click",function(e){var el=e.target&&e.target.closest&&e.target.closest("a[href]");if(!el)return;var h=el.getAttribute("href");if(!h||h.startsWith("#")||h.startsWith("javascript:"))return;var p=c.rewrite(h,_base());if(p&&p!==h)el.setAttribute("href",p);},true);` +
   `document.addEventListener("submit",function(e){var f=e.target;if(!f||!f.action)return;var p=c.rewrite(f.action,_base());if(p&&p!==f.action)f.action=p;},true);` +
   `}();</script>` +
-  (mode === "youtube" ? YOUTUBE_HELPER(base) : `<script src="/nv.client.js?v=4.2.44"></script>`);
+  (mode === "youtube" ? YOUTUBE_HELPER(base) : `<script src="/nv.client.js?v=4.2.47"></script>`);
 
 export function rewriteHtml(html, base, options = {}) {
   const injectRuntime = options.injectRuntime !== false;

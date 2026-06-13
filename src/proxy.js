@@ -210,6 +210,33 @@ function rewriteJsonText(source, baseUrl) {
   }
 }
 
+function sanitizeNhPlayerHtml(source, resourceUrl) {
+  try {
+    const u = new URL(resourceUrl);
+    const host = u.hostname.toLowerCase();
+    if (host !== "nhplayer.com" && !host.endsWith(".nhplayer.com")) return source;
+    if (!u.pathname.endsWith("/player.php")) return source;
+    let mediaUrl = "";
+    try {
+      const token = u.searchParams.get("vid") || "";
+      const padded = token + "=".repeat((4 - (token.length % 4)) % 4);
+      const decoded = Buffer.from(padded.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8");
+      const candidate = decoded.split("|")[0];
+      if (/^https?:\/\//i.test(candidate)) mediaUrl = rewriteUrl(candidate, resourceUrl);
+    } catch {}
+    const seedResult = mediaUrl ? `window._pC=window._pC||{};window._pC.result={url:${JSON.stringify(mediaUrl)}};window._pC.error=null;` : "";
+    return String(source || "")
+      .replace(/_f\.push\(/g, "void(")
+      .replace(/typeof\s+v\.domResult\s*===\s*(['"])function\1/g, "false")
+      .replace(/if\s*\(\s*_f\.length\s*>\s*0\s*\)\s*\{[\s\S]*?try\s*\{\s*w\.stop\(\)\s*;\s*\}\s*catch\s*\(e\)\s*\{\s*\}\s*[\s\S]*?\}/g, "if(false){}")
+      .replace(/if\s*\(\s*flags\.length\s*>\s*0\s*&&\s*w\._pC\s*\)\s*\{?\s*w\._pC\._postFlags\s*=\s*flags\s*;?\s*\}?/g, "if(false){}")
+      .replace(/if\s*\(\s*w\._pC\s*\)\s*w\._pC\.error\s*=\s*new\s+Error\((['"])blocked\1\)\s*;/g, "")
+      .replace(/\(function\s+checkResult\s*\(\)\s*\{/, `${seedResult}(function checkResult(){`);
+  } catch {
+    return source;
+  }
+}
+
 function decodeProxyPathTarget(pathname, search = "") {
   if (!pathname || !pathname.startsWith(PREFIX)) return null;
   const rawPath = pathname.slice(PREFIX.length);
@@ -1190,7 +1217,8 @@ export async function handleProxy(req, res, url) {
     if (ct.includes("text/html")) {
       const buf = await collectStream(decompressStream(response.body, enc));
       const charset = (ct.match(/charset=([\w-]+)/i) || [])[1] || "utf-8";
-      const text = buf.toString(/utf-?8/i.test(charset) ? "utf8" : "latin1");
+      let text = buf.toString(/utf-?8/i.test(charset) ? "utf8" : "latin1");
+      text = sanitizeNhPlayerHtml(text, finalUrl || targetUrl);
       if (isGoogleIdentityDocument(finalUrl)) {
         outHeaders["content-type"] = "text/html; charset=utf-8";
         delete outHeaders["content-length"];
