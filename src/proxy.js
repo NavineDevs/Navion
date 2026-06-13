@@ -4,7 +4,7 @@ import zlib from "node:zlib";
 import fs from "node:fs";
 import path from "node:path";
 import { URL } from "node:url";
-import { decode, encode } from "./rewriters/url.js";
+import { decode, encode, rewriteUrl } from "./rewriters/url.js";
 import { rewriteHtml } from "./rewriters/html.js";
 import { rewriteJs } from "./rewriters/js.js";
 import { rewriteCss } from "./rewriters/css.js";
@@ -126,9 +126,13 @@ function normalizeTargetUrl(targetUrl) {
   try {
     const target = new URL(targetUrl);
     const host = target.hostname.toLowerCase();
+    if (host === "pornhub.com") {
+      target.hostname = "www.pornhub.com";
+      return target.href;
+    }
     if (
       (host === "duckduckgo.com" || host === "www.duckduckgo.com" || host === "html.duckduckgo.com") &&
-      (target.pathname === "/ai" || target.pathname.startsWith("/ai/"))
+      (target.pathname === "/ai" || target.pathname.startsWith("/ai/") || target.searchParams.get("duckai") === "1" || target.searchParams.get("ia") === "chat" || target.searchParams.get("iax") === "chat")
     ) {
       const aiUrl = new URL("https://duck.ai/");
       aiUrl.pathname = target.pathname === "/ai" ? "/" : target.pathname.slice(3) || "/";
@@ -145,6 +149,65 @@ function normalizeTargetUrl(targetUrl) {
     }
   } catch {}
   return targetUrl;
+}
+
+function isMediaManifestTarget(targetUrl, contentType = "") {
+  try {
+    const path = new URL(targetUrl).pathname.toLowerCase();
+    return (
+      path.endsWith(".m3u8") ||
+      path.endsWith(".mpd") ||
+      contentType.includes("mpegurl") ||
+      contentType.includes("vnd.apple.mpegurl") ||
+      contentType.includes("dash+xml")
+    );
+  } catch {
+    return contentType.includes("mpegurl") || contentType.includes("vnd.apple.mpegurl") || contentType.includes("dash+xml");
+  }
+}
+
+function isStreamableMediaTarget(targetUrl, contentType = "") {
+  try {
+    const path = new URL(targetUrl).pathname.toLowerCase();
+    if (/\.(?:mp4|m4v|webm|mov|mkv|avi|ts|m2ts|aac|m4a|mp3|ogg|opus|wav)(?:$|\?)/i.test(path)) return true;
+  } catch {}
+  return contentType.includes("video/") || contentType.includes("audio/") || contentType.includes("application/octet-stream");
+}
+
+function rewriteMediaManifest(source, baseUrl) {
+  return String(source || "")
+    .replace(/URI=(["'])([^"']+)\1/g, (m, q, value) => `URI=${q}${rewriteUrl(value, baseUrl)}${q}`)
+    .split(/\r?\n/)
+    .map((line) => {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#")) return line;
+      return line.replace(trimmed, rewriteUrl(trimmed, baseUrl));
+    })
+    .join("\n");
+}
+
+function rewriteJsonValue(value, baseUrl, depth = 0) {
+  if (depth > 18 || value == null) return value;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (/^(?:https?:\/\/|\/\/|\/(?!\/)|\.{1,2}\/)[^\s"'<>]+$/i.test(trimmed)) return rewriteUrl(value, baseUrl);
+    return value;
+  }
+  if (Array.isArray(value)) return value.map((entry) => rewriteJsonValue(entry, baseUrl, depth + 1));
+  if (typeof value === "object") {
+    const out = {};
+    for (const [key, entry] of Object.entries(value)) out[key] = rewriteJsonValue(entry, baseUrl, depth + 1);
+    return out;
+  }
+  return value;
+}
+
+function rewriteJsonText(source, baseUrl) {
+  try {
+    return JSON.stringify(rewriteJsonValue(JSON.parse(source), baseUrl));
+  } catch {
+    return source;
+  }
 }
 
 function decodeProxyPathTarget(pathname, search = "") {
@@ -1109,6 +1172,21 @@ export async function handleProxy(req, res, url) {
       return;
     }
 
+    if (isMediaManifestTarget(finalUrl || targetUrl, ct)) {
+      const buf = await collectStream(decompressStream(response.body, enc));
+      const out = rewriteMediaManifest(buf.toString("utf8"), finalUrl || targetUrl);
+      delete outHeaders["content-length"];
+      res.writeHead(response.status, outHeaders);
+      res.end(out);
+      return;
+    }
+
+    if (isStreamableMediaTarget(finalUrl || targetUrl, ct) && !enc) {
+      res.writeHead(response.status, outHeaders);
+      response.body.pipe(res);
+      return;
+    }
+
     if (ct.includes("text/html")) {
       const buf = await collectStream(decompressStream(response.body, enc));
       const charset = (ct.match(/charset=([\w-]+)/i) || [])[1] || "utf-8";
@@ -1162,6 +1240,15 @@ export async function handleProxy(req, res, url) {
       const htmlBase = isYouTubeHost ? targetUrl : finalUrl;
       const out = rewriteHtml(text, htmlBase, { injectRuntime, runtimeMode, rewriteMode });
       outHeaders["content-type"] = "text/html; charset=utf-8";
+      delete outHeaders["content-length"];
+      res.writeHead(response.status, outHeaders);
+      res.end(out);
+      return;
+    }
+
+    if (ct.includes("application/json") || ct.includes("+json")) {
+      const buf = await collectStream(decompressStream(response.body, enc));
+      const out = rewriteJsonText(buf.toString("utf8"), finalUrl || targetUrl);
       delete outHeaders["content-length"];
       res.writeHead(response.status, outHeaders);
       res.end(out);
