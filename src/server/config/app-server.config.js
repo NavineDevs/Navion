@@ -1,0 +1,23 @@
+export const NAVION_APP_SERVER_DEFAULTS = {
+  prefix: "/nv/",
+  apiEndpoint: "/api/fetch",
+  statusEndpoint: "/api/navion-status",
+  bindHost: process.env.NAVION_APP_HOST || "0.0.0.0",
+  port: parseInt(process.env.PORT || "8090", 10),
+  defaultDuckAiOrigin: "https://duck.ai/",
+  defaultDuckduckgoOrigin: "https://duckduckgo.com/",
+  localAssetPaths: new Set([
+    "/",
+    "/app",
+    "/index.html",
+    "/favicon.ico",
+    "/nav/home",
+    "/nav/error",
+    "/nv.sw.js",
+    "/nv.client.js",
+    "/nv.register.js",
+    "/logo.png",
+    "/generate_204",
+    "/api/navion-status",
+  ]),
+};

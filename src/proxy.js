@@ -6,7 +6,7 @@ import path from "node:path";
 import { URL } from "node:url";
 import { decode, encode, rewriteUrl } from "./rewriters/url.js";
 import { rewriteHtml } from "./rewriters/html.js";
-import { rewriteJs } from "./rewriters/js.js";
+import { rewriteJs, rewriteCdnUrlLiterals } from "./rewriters/js.js";
 import { rewriteCss } from "./rewriters/css.js";
 import { NAVION_CORE_CONFIG } from "./server/config/navion.config.js";
 import { runNavionHooks } from "./server/pipeline/hooks.js";
@@ -76,35 +76,53 @@ const DROP_RES = new Set([
 
 const BASE_HEADERS = { ...NAVION_CORE_CONFIG.baseHeaders };
 
-function isNonCriticalFailure(req, targetUrl) {
-  const method = String(req.method || "GET").toUpperCase();
-  if (method !== "GET" && method !== "HEAD") return false;
+function isNoiseTarget(targetUrl) {
   try {
     const parsed = new URL(targetUrl);
     const host = parsed.hostname.toLowerCase();
     const pathname = parsed.pathname.toLowerCase();
     if (
       host === "improving.duckduckgo.com" ||
-      host === "googleads.g.doubleclick.net"
+      host.endsWith(".improving.duckduckgo.com") ||
+      host === "googleads.g.doubleclick.net" ||
+      host.endsWith(".doubleclick.net")
     ) {
       return true;
     }
-    if (/\.(?:js|mjs|css|map|png|jpe?g|gif|webp|svg|ico|woff2?|ttf|otf|mp4|webm|mp3|m4a|ogg|opus|wav|json)(?:$|\?)/i.test(pathname)) {
+    if (
+      pathname.startsWith("/youtubei/v1/log_event") ||
+      pathname.startsWith("/youtubei/v1/feedback") ||
+      pathname.startsWith("/api/stats/") ||
+      pathname.startsWith("/ptracking") ||
+      pathname.indexOf("/t/static_fcp") === 0 ||
+      pathname.indexOf("/t/page_home_searchbox_submit") === 0
+    ) {
       return true;
     }
   } catch {}
-  const dest = String(req.headers["sec-fetch-dest"] || "").toLowerCase();
-  if (dest) return dest !== "document" && dest !== "iframe" && dest !== "frame";
-  const accept = String(req.headers.accept || "").toLowerCase();
-  if (accept.includes("text/html") || accept.includes("application/xhtml+xml")) return false;
-  return (
-    accept.includes("javascript") ||
-    accept.includes("text/css") ||
-    accept.includes("image/") ||
-    accept.includes("font/") ||
-    accept.includes("application/json") ||
-    accept.includes("*/*")
-  );
+  return false;
+}
+
+function isNonCriticalFailure(req, targetUrl) {
+  return isNoiseTarget(targetUrl);
+}
+
+function isPornhubHost(hostname) {
+  const host = String(hostname || "").toLowerCase();
+  return host === "pornhub.com" || host.endsWith(".pornhub.com");
+}
+
+function isAdultContentHost(hostname) {
+  const host = String(hostname || "").toLowerCase();
+  if (isPornhubHost(host)) return true;
+  if (host === "xvideos.com" || host.endsWith(".xvideos.com")) return true;
+  if (host === "xhamster.com" || host.endsWith(".xhamster.com")) return true;
+  if (host === "xhamster.desi" || host.endsWith(".xhamster.desi")) return true;
+  if (host === "eporner.com" || host.endsWith(".eporner.com")) return true;
+  if (host === "redtube.com" || host.endsWith(".redtube.com")) return true;
+  if (host === "spankbang.com" || host.endsWith(".spankbang.com")) return true;
+  if (host === "xnxx.com" || host.endsWith(".xnxx.com")) return true;
+  return false;
 }
 
 function decodeNestedUrl(value) {
@@ -126,8 +144,20 @@ function normalizeTargetUrl(targetUrl) {
   try {
     const target = new URL(targetUrl);
     const host = target.hostname.toLowerCase();
+    if (host === "m.youtube.com") {
+      target.hostname = "www.youtube.com";
+      return target.href;
+    }
     if (host === "pornhub.com") {
       target.hostname = "www.pornhub.com";
+      return target.href;
+    }
+    if (host === "xvideos.com") {
+      target.hostname = "www.xvideos.com";
+      return target.href;
+    }
+    if (host === "xhamster.com" || host === "xhamster.desi") {
+      target.hostname = host === "xhamster.desi" ? "xhamster.desi" : "xhamster.com";
       return target.href;
     }
     if (
@@ -169,6 +199,7 @@ function isMediaManifestTarget(targetUrl, contentType = "") {
 function isStreamableMediaTarget(targetUrl, contentType = "") {
   try {
     const path = new URL(targetUrl).pathname.toLowerCase();
+    if (path.includes("/videoplayback")) return true;
     if (/\.(?:mp4|m4v|webm|mov|mkv|avi|ts|m2ts|aac|m4a|mp3|ogg|opus|wav)(?:$|\?)/i.test(path)) return true;
   } catch {}
   return contentType.includes("video/") || contentType.includes("audio/") || contentType.includes("application/octet-stream");
@@ -249,7 +280,7 @@ function decodeProxyPathTarget(pathname, search = "") {
   if (!/^https?:\/\//i.test(decoded)) return null;
   const target = new URL(decoded);
   if (suffix) target.pathname = target.pathname.replace(/\/?$/, "") + decodeURI(suffix);
-  if (search) target.search = search;
+  if (search && !target.search) target.search = search;
   return target.href;
 }
 
@@ -389,6 +420,20 @@ function isYouTubeLikeHost(hostname) {
   );
 }
 
+function isYouTubeRelatedHost(hostname) {
+  const host = String(hostname || "").toLowerCase();
+  if (isYouTubeLikeHost(host)) return true;
+  return (
+    host === "googlevideo.com" ||
+    host.endsWith(".googlevideo.com") ||
+    host.endsWith(".gstatic.com") ||
+    host.endsWith(".ytimg.com") ||
+    host.endsWith(".googleapis.com") ||
+    host.endsWith(".doubleclick.net") ||
+    host.includes("youtube")
+  );
+}
+
 function shouldBypassJsRewrite(resourceUrl) {
   try {
     const u = new URL(resourceUrl);
@@ -519,17 +564,22 @@ function isRecoverableSocketError(err) {
     code === "EPIPE" ||
     code === "ETIMEDOUT" ||
     code === "ECONNABORTED" ||
-    code === "ERR_INVALID_PROTOCOL"
+    code === "ERR_INVALID_PROTOCOL" ||
+    code === "EPROTO" ||
+    code === "ERR_SSL_VERSION_OR_CIPHER_MISMATCH"
   ) {
     return true;
   }
-  const msg = String(err.message || "");
+  const msg = String(err.message || "").toLowerCase();
   return (
-    msg.includes("ECONN") ||
-    msg.includes("EPIPE") ||
-    msg.includes("ETIMEDOUT") ||
-    msg.includes("ERR_INVALID_") ||
-    msg.toLowerCase().includes("timed out")
+    msg.includes("econn") ||
+    msg.includes("epipe") ||
+    msg.includes("etimedout") ||
+    msg.includes("err_invalid_") ||
+    msg.includes("alpn") ||
+    msg.includes("ssl") ||
+    msg.includes("tls") ||
+    msg.includes("timed out")
   );
 }
 
@@ -538,6 +588,7 @@ function rawFetch(targetUrl, options, redirectCount = 0) {
     const parsed = new URL(targetUrl);
     const isHttps = parsed.protocol === "https:";
     const lib = isHttps ? https : http;
+    const useAgent = options.fresh ? undefined : (isHttps ? httpsAgent : httpAgent);
 
     const req = lib.request({
       hostname: parsed.hostname,
@@ -545,7 +596,7 @@ function rawFetch(targetUrl, options, redirectCount = 0) {
       path: parsed.pathname + parsed.search,
       method: options.method || "GET",
       headers: options.headers || {},
-      agent: isHttps ? httpsAgent : httpAgent,
+      agent: useAgent,
       timeout: options.timeoutMs || NAVION_CORE_CONFIG.fetch.timeoutMs,
     }, (res) => {
       const { statusCode: status, headers } = res;
@@ -572,7 +623,8 @@ async function navionFetchWithRetry(targetUrl, options, retries = 1) {
   let lastError = null;
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      return await rawFetch(targetUrl, options);
+      const fetchOptions = attempt > 0 ? { ...options, fresh: true } : options;
+      return await rawFetch(targetUrl, fetchOptions);
     } catch (error) {
       lastError = error;
       if (attempt >= retries || !isRecoverableSocketError(error)) break;
@@ -878,17 +930,58 @@ function buildUpstreamCookieHeader(sid, targetUrl) {
   return Array.from(out.entries()).map(([k, v]) => `${k}=${v}`).join("; ");
 }
 
-function buildOutHeaders(resHeaders) {
+function resolveRequestOrigin(req) {
+  const requestOrigin = req?.headers?.origin;
+  if (requestOrigin) return requestOrigin;
+  if (req?.headers?.referer) {
+    try {
+      return new URL(req.headers.referer).origin;
+    } catch {}
+  }
+  if (req?.headers?.host) {
+    try {
+      return new URL(`http://${req.headers.host}`).origin;
+    } catch {}
+  }
+  return null;
+}
+
+function buildOutHeaders(resHeaders, req) {
+  const requestOrigin = resolveRequestOrigin(req);
   const out = {
     "cross-origin-resource-policy": "cross-origin",
-    "access-control-allow-origin": "*",
     "access-control-expose-headers": "*",
-    "timing-allow-origin": "*",
+    "timing-allow-origin": requestOrigin || "*",
   };
+  if (requestOrigin) {
+    out["access-control-allow-origin"] = requestOrigin;
+    out["access-control-allow-credentials"] = "true";
+  } else {
+    out["access-control-allow-origin"] = "*";
+  }
   for (const [k, v] of Object.entries(resHeaders)) {
     if (!DROP_RES.has(k.toLowerCase())) out[k] = v;
   }
   delete out["set-cookie"];
+  if (requestOrigin) {
+    out["access-control-allow-origin"] = requestOrigin;
+    out["access-control-allow-credentials"] = "true";
+  }
+  return out;
+}
+
+function buildCorsPreflightHeaders(req) {
+  const requestOrigin = resolveRequestOrigin(req) || "*";
+  const requestHeaders = req.headers["access-control-request-headers"] || "content-type, authorization, x-requested-with, x-youtube-client-name, x-youtube-client-version, x-goog-authuser, x-goog-visitor-id";
+  const out = {
+    "access-control-allow-origin": requestOrigin,
+    "access-control-allow-methods": "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS",
+    "access-control-allow-headers": requestHeaders,
+    "access-control-max-age": "86400",
+    "content-length": "0",
+    "cache-control": "no-store",
+  };
+  if (req.headers.origin) out["access-control-allow-credentials"] = "true";
   return out;
 }
 
@@ -982,6 +1075,19 @@ function errorResponse(res, status, title, message, targetUrl) {
   res.end(buildErrorHtml(status, title, message, targetUrl));
 }
 
+function proxyFetchErrorResponse(res, req, status, message, targetUrl) {
+  if (isDocumentRequest(req)) {
+    errorResponse(res, status, "Connection Failed", message, targetUrl);
+    return;
+  }
+  const headers = {
+    "cache-control": "no-store",
+    "content-type": "application/json; charset=utf-8",
+  };
+  if (!res.headersSent) res.writeHead(status, headers);
+  res.end(JSON.stringify({ error: { code: status, message: message || "Proxy fetch failed" } }));
+}
+
 export async function handleProxy(req, res, url) {
   await runNavionHooks("beforeRequest", { req, res, url });
   const encoded = url.searchParams.get("url");
@@ -1000,10 +1106,19 @@ export async function handleProxy(req, res, url) {
     return;
   }
 
-  const fwdHeaders = { ...BASE_HEADERS };
   const inCookies = parseCookieHeader(req.headers.cookie || "");
   const sessionId = inCookies.nv_sid || newNavionSessionId();
   const setSessionCookie = !inCookies.nv_sid;
+
+  if ((req.method || "GET").toUpperCase() === "OPTIONS") {
+    const headers = buildCorsPreflightHeaders(req);
+    if (setSessionCookie) headers["set-cookie"] = navionSessionCookieValue(sessionId);
+    res.writeHead(204, headers);
+    res.end();
+    return;
+  }
+
+  const fwdHeaders = { ...BASE_HEADERS };
 
   for (const [key, value] of Object.entries(req.headers)) {
     const lower = key.toLowerCase();
@@ -1077,34 +1192,50 @@ export async function handleProxy(req, res, url) {
     return;
   }
 
-  if (isGoogleVideo) {
-    let normalizedReferer = "https://www.youtube.com/";
-    try {
-      if (fwdHeaders.referer) {
-        const refererUrl = new URL(fwdHeaders.referer);
-        if (isYouTubeLikeHost(refererUrl.hostname)) normalizedReferer = refererUrl.href;
-      }
-    } catch {}
-    fwdHeaders.referer = normalizedReferer;
-    fwdHeaders.origin = new URL(normalizedReferer).origin;
-    if (req.headers["sec-fetch-site"]) fwdHeaders["sec-fetch-site"] = req.headers["sec-fetch-site"];
-    else fwdHeaders["sec-fetch-site"] = "cross-site";
-    if (req.headers["sec-fetch-mode"]) fwdHeaders["sec-fetch-mode"] = req.headers["sec-fetch-mode"];
-    else fwdHeaders["sec-fetch-mode"] = "no-cors";
-    if (req.headers["sec-fetch-dest"]) fwdHeaders["sec-fetch-dest"] = req.headers["sec-fetch-dest"];
-    else fwdHeaders["sec-fetch-dest"] = "video";
-    if (req.headers.range && !fwdHeaders.range) fwdHeaders.range = req.headers.range;
-    if (req.headers["if-range"] && !fwdHeaders["if-range"]) fwdHeaders["if-range"] = req.headers["if-range"];
-    fwdHeaders.accept = fwdHeaders.accept || "*/*";
-    const youtubeCookie = buildUpstreamCookieHeader(sessionId, "https://www.youtube.com/");
-    if (youtubeCookie) fwdHeaders.cookie = youtubeCookie;
+  if (isAdultContentHost(host)) {
+    fwdHeaders.referer = `${target.origin}/`;
+    fwdHeaders.origin = target.origin;
+    fwdHeaders["accept-language"] = fwdHeaders["accept-language"] || "en-US,en;q=0.9";
+    fwdHeaders.accept = fwdHeaders.accept || "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8";
+    fwdHeaders["cache-control"] = "max-age=0";
+    fwdHeaders["upgrade-insecure-requests"] = "1";
+    fwdHeaders["sec-fetch-site"] = fwdHeaders["sec-fetch-site"] || "none";
+    fwdHeaders["sec-fetch-mode"] = fwdHeaders["sec-fetch-mode"] || "navigate";
+    fwdHeaders["sec-fetch-dest"] = fwdHeaders["sec-fetch-dest"] || "document";
   }
 
-  if (isYouTubeApi) {
+  if (isGoogleVideo) {
     fwdHeaders.referer = "https://www.youtube.com/";
-    fwdHeaders.origin = "https://www.youtube.com";
-    if (!fwdHeaders["content-type"]) fwdHeaders["content-type"] = "application/json";
+    delete fwdHeaders.origin;
+    delete fwdHeaders.cookie;
+    delete fwdHeaders.authorization;
+    delete fwdHeaders["x-goog-authuser"];
+    delete fwdHeaders["x-goog-visitor-id"];
+    fwdHeaders["sec-fetch-site"] = "cross-site";
+    fwdHeaders["sec-fetch-mode"] = "no-cors";
+    fwdHeaders["sec-fetch-dest"] = req.headers["sec-fetch-dest"] || "video";
+    if (req.headers.range) fwdHeaders.range = req.headers.range;
+    if (req.headers["if-range"]) fwdHeaders["if-range"] = req.headers["if-range"];
     fwdHeaders.accept = "*/*";
+    fwdHeaders["accept-language"] = fwdHeaders["accept-language"] || "en-US,en;q=0.9";
+    fwdHeaders["user-agent"] = fwdHeaders["user-agent"] || BASE_HEADERS["user-agent"];
+    const clientIp =
+      String(req.headers["cf-connecting-ip"] || "").trim() ||
+      String(req.headers["x-real-ip"] || "").trim() ||
+      String(req.headers["x-forwarded-for"] || "").split(",")[0].trim();
+    if (clientIp) {
+      fwdHeaders["x-forwarded-for"] = clientIp;
+      fwdHeaders["x-real-ip"] = clientIp;
+    }
+  }
+
+  if (isYouTubeApi || isYouTubeRelatedHost(host)) {
+    if (isYouTubeApi || host.includes("youtube") || host.endsWith(".youtube.com")) {
+      fwdHeaders.referer = fwdHeaders.referer || "https://www.youtube.com/";
+      fwdHeaders.origin = fwdHeaders.origin || "https://www.youtube.com";
+    }
+    if (isYouTubeApi && !fwdHeaders["content-type"]) fwdHeaders["content-type"] = "application/json";
+    if (isYouTubeApi || host.includes("suggestqueries")) fwdHeaders.accept = fwdHeaders.accept || "*/*";
   }
 
   if (!fwdHeaders.origin && fwdHeaders.referer) {
@@ -1139,8 +1270,14 @@ export async function handleProxy(req, res, url) {
 
     const documentRequest = isDocumentRequest(req);
     const requestTimeoutMs = documentRequest ? NAVION_CORE_CONFIG.fetch.timeoutMs : 7000;
-    const retryBudget = documentRequest && (isYouTubeHost || host.endsWith(".google.com") || host === "google.com" || isGoogleVideo) ? 2 : 0;
-    const response = await navionFetchWithRetry(targetUrl, { method, headers: fwdHeaders, body, timeoutMs: requestTimeoutMs }, retryBudget);
+    const retryCount = documentRequest && (
+      isYouTubeHost ||
+      isAdultContentHost(host) ||
+      host.endsWith(".google.com") ||
+      host === "google.com" ||
+      isGoogleVideo
+    ) ? 3 : documentRequest ? 1 : isGoogleVideo || isYouTubeApi ? 2 : 0;
+    const response = await navionFetchWithRetry(targetUrl, { method, headers: fwdHeaders, body, timeoutMs: requestTimeoutMs }, retryCount);
     if (
       isYouTubeApi &&
       isNonCriticalYouTubeApiPath(target.pathname) &&
@@ -1158,7 +1295,7 @@ export async function handleProxy(req, res, url) {
     const enc = response.headers["content-encoding"] || "";
     const finalUrl = response.url;
     storeResponseCookies(sessionId, finalUrl || targetUrl, response.headers["set-cookie"]);
-      const outHeaders = buildOutHeaders(response.headers);
+      const outHeaders = buildOutHeaders(response.headers, req);
       if (setSessionCookie) outHeaders["set-cookie"] = navionSessionCookieValue(sessionId);
       if (typeof outHeaders.location === "string") {
         outHeaders.location = rewriteLocationHeader(outHeaders.location, targetUrl);
@@ -1171,11 +1308,18 @@ export async function handleProxy(req, res, url) {
         headers: outHeaders,
       });
 
-    if (response.status >= 400 && isNonCriticalFailure(req, targetUrl)) {
+    if (response.status >= 400 && isNoiseTarget(targetUrl)) {
       response.body.resume();
       const fallback = fallbackAssetResponse(req, targetUrl, ct);
       res.writeHead(fallback.status, fallback.headers);
       res.end(fallback.body);
+      return;
+    }
+
+    if (isGoogleVideo && response.status >= 400 && response.status < 500) {
+      delete outHeaders["content-length"];
+      res.writeHead(response.status, outHeaders);
+      response.body.pipe(res);
       return;
     }
 
@@ -1185,9 +1329,19 @@ export async function handleProxy(req, res, url) {
         redirectToErrorPage(res, targetUrl);
         return;
       }
-      const fallback = fallbackAssetResponse(req, targetUrl, ct);
-      res.writeHead(fallback.status, fallback.headers);
-      res.end(fallback.body);
+      if (isNoiseTarget(targetUrl)) {
+        const fallback = fallbackAssetResponse(req, targetUrl, ct);
+        res.writeHead(fallback.status, fallback.headers);
+        res.end(fallback.body);
+        return;
+      }
+      if (isGoogleVideo) {
+        res.writeHead(403, { "cache-control": "no-store", "content-type": "text/plain; charset=utf-8" });
+        res.end("");
+        return;
+      }
+      res.writeHead(response.status, outHeaders);
+      res.end("");
       return;
     }
 
@@ -1229,13 +1383,18 @@ export async function handleProxy(req, res, url) {
       let injectRuntime = true;
       let runtimeMode = "mask";
       let rewriteMode = "full";
+      let injectYouTubeHelper = false;
       try {
         const htmlHost = new URL(finalUrl).hostname.toLowerCase();
         if (
           htmlHost === "navianime.vercel.app"
         ) {
           injectRuntime = true;
-          runtimeMode = "navianime";
+          runtimeMode = "full";
+          rewriteMode = "full";
+        } else if (isAdultContentHost(htmlHost)) {
+          injectRuntime = true;
+          runtimeMode = "full";
           rewriteMode = "full";
         } else if (
           htmlHost === "youtube.com" ||
@@ -1244,8 +1403,10 @@ export async function handleProxy(req, res, url) {
           htmlHost.endsWith(".youtube.com")
         ) {
           injectRuntime = true;
-          runtimeMode = "youtube";
-          rewriteMode = "nav-only";
+          const ytDest = String(req.headers["sec-fetch-dest"] || "").toLowerCase();
+          runtimeMode = (ytDest === "iframe" || ytDest === "frame") ? "lite-nav" : "full";
+          rewriteMode = "full";
+          injectYouTubeHelper = true;
         } else if (
           htmlHost === "duck.ai" ||
           htmlHost.endsWith(".duck.ai") ||
@@ -1266,7 +1427,7 @@ export async function handleProxy(req, res, url) {
         }
       } catch {}
       const htmlBase = isYouTubeHost ? targetUrl : finalUrl;
-      const out = rewriteHtml(text, htmlBase, { injectRuntime, runtimeMode, rewriteMode });
+      const out = rewriteHtml(text, htmlBase, { injectRuntime, runtimeMode, rewriteMode, injectYouTubeHelper });
       outHeaders["content-type"] = "text/html; charset=utf-8";
       delete outHeaders["content-length"];
       res.writeHead(response.status, outHeaders);
@@ -1295,7 +1456,7 @@ export async function handleProxy(req, res, url) {
       const buf = await collectStream(decompressStream(response.body, enc));
       const source = buf.toString("utf8");
       const prepared = rewriteDuckDuckGoScript(rewriteDuckAiScript(source, finalUrl), finalUrl);
-      const out = shouldBypassJsRewrite(finalUrl) ? prepared : rewriteJs(prepared, finalUrl);
+      const out = shouldBypassJsRewrite(finalUrl) ? rewriteCdnUrlLiterals(prepared, finalUrl) : rewriteJs(prepared, finalUrl);
       delete outHeaders["content-length"];
       res.writeHead(response.status, outHeaders);
       res.end(out);
@@ -1334,7 +1495,7 @@ export async function handleProxy(req, res, url) {
         return;
       }
     }
-    if (isRecoverableSocketError(err) && isNonCriticalFailure(req, targetUrl)) {
+    if (targetUrl && isNoiseTarget(targetUrl)) {
       const fallback = fallbackAssetResponse(req, targetUrl, "");
       if (!res.headersSent) res.writeHead(fallback.status, fallback.headers);
       res.end(fallback.body);
@@ -1346,16 +1507,39 @@ export async function handleProxy(req, res, url) {
       res.end(fallback.body);
       return;
     }
+    if (targetUrl) {
+      try {
+        const failedHost = new URL(targetUrl).hostname.toLowerCase();
+        const failedPath = new URL(targetUrl).pathname;
+        if (failedHost.endsWith(".googlevideo.com") || failedHost === "googlevideo.com") {
+          if (!res.headersSent) {
+            res.writeHead(403, { "cache-control": "no-store", "content-type": "text/plain; charset=utf-8", "x-navion-playback": "blocked" });
+          }
+          res.end("");
+          return;
+        }
+        if (isYouTubeLikeHost(failedHost) && failedPath.startsWith("/youtubei/")) {
+          proxyFetchErrorResponse(res, req, 502, err?.message || "Proxy fetch failed.", targetUrl);
+          return;
+        }
+      } catch {}
+    }
     if (targetUrl && isDocumentRequest(req)) {
       redirectToErrorPage(res, targetUrl);
       return;
     }
     if (targetUrl) {
-      const fallback = fallbackAssetResponse(req, targetUrl, "");
-      if (!res.headersSent) res.writeHead(fallback.status, fallback.headers);
-      res.end(fallback.body);
-      return;
+      if (isNoiseTarget(targetUrl)) {
+        const fallback = fallbackAssetResponse(req, targetUrl, "");
+        if (!res.headersSent) res.writeHead(fallback.status, fallback.headers);
+        res.end(fallback.body);
+        return;
+      }
+      if (isDocumentRequest(req)) {
+        redirectToErrorPage(res, targetUrl);
+        return;
+      }
     }
-    errorResponse(res, 502, "Connection Failed", err.message, targetUrl);
+    proxyFetchErrorResponse(res, req, 502, err?.message || "Proxy fetch failed.", targetUrl);
   }
 }

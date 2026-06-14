@@ -60,5 +60,19 @@ export function rewriteJs(js, base) {
     (m, pre, value) => `${pre}${rewriteScriptUrlLiteral(value, base)}`
   );
 
+  return rewriteCdnUrlLiterals(out, base);
+}
+
+export function rewriteCdnUrlLiterals(js, base) {
+  if (!js) return js;
+  let out = js;
+  out = out.replace(
+    /(["'`])(https?:\/\/(?:[\w-]+\.)*(?:googlevideo\.com|gstatic\.com|ytimg\.com|ggpht\.com|googleapis\.com|doubleclick\.net|youtube\.com)[^"'`]*)\1/gi,
+    (m, q, value) => `${q}${rewriteScriptUrlLiteral(value, base)}${q}`
+  );
+  out = out.replace(
+    /(["'`])(\/\/(?:[\w-]+\.)*(?:googlevideo\.com|gstatic\.com|ytimg\.com|ggpht\.com|googleapis\.com|doubleclick\.net|youtube\.com)[^"'`]*)\1/gi,
+    (m, q, value) => `${q}${rewriteScriptUrlLiteral(value, base)}${q}`
+  );
   return out;
 }

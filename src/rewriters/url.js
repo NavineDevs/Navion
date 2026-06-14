@@ -31,6 +31,40 @@ export function decode(encoded) {
   );
 }
 
+const PATH_MARKERS = ["dist/", "_next/", "country.json", "duckchat/", "static/"];
+
+export function parseNavionPath(pathname) {
+  if (!pathname || !pathname.startsWith(PREFIX)) return null;
+  const rawPath = pathname.slice(PREFIX.length);
+  if (!rawPath) return null;
+  let slash = rawPath.indexOf("/");
+  let rawToken = slash === -1 ? rawPath : rawPath.slice(0, slash);
+  let suffix = slash === -1 ? "" : rawPath.slice(slash);
+  if (!suffix) {
+    for (const marker of PATH_MARKERS) {
+      const index = rawPath.indexOf(marker);
+      if (index > 0) {
+        rawToken = rawPath.slice(0, index);
+        suffix = `/${rawPath.slice(index)}`;
+        break;
+      }
+    }
+  }
+  let token = rawToken;
+  try { token = decodeURIComponent(rawToken); } catch {}
+  let decoded = null;
+  try {
+    decoded = /^https?:\/\//i.test(token) ? token : decode(token);
+  } catch {}
+  if (!decoded || !/^https?:\/\//i.test(decoded)) return null;
+  return { rawToken, suffix, decoded };
+}
+
+export function decodeNavionToken(pathname) {
+  const parsed = parseNavionPath(pathname);
+  return parsed?.decoded || null;
+}
+
 export function rewriteUrl(url, base) {
   if (!url) return url;
   const trimmed = url.trim();
@@ -63,10 +97,6 @@ export function rewriteUrl(url, base) {
 
 export function unrewriteUrl(url) {
   if (!url || !url.startsWith(PREFIX)) return url;
-  try {
-    const raw = url.slice(PREFIX.length).split("?")[0].split("#")[0];
-    return decode(raw);
-  } catch {
-    return url;
-  }
+  const parsed = parseNavionPath(url.split("?")[0].split("#")[0]);
+  return parsed?.decoded || url;
 }

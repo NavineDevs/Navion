@@ -1,12 +1,20 @@
 {
   "name": "navion",
-  "version": "1.0.0",
-  "description": "Navion Core",
+  "version": "1.0.1",
+  "description": "Zero-dependency web proxy engine with URL, HTML, CSS, and JS rewriting",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/NavineDevs/Navion.git"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "main": "./src/server/index.js",
   "type": "module",
   "exports": {
     ".": "./src/server/index.js",
     "./server": "./src/server/create-server.js",
+    "./app": "./src/server/create-app-server.js",
     "./proxy": "./src/server/proxy.js",
     "./config": "./src/server/config/navion.config.js",
     "./rewriters/url": "./src/server/rewriters/url.js",
@@ -26,7 +34,7 @@
   ],
   "scripts": {
     "start": "node server.js",
-    "check": "node --check server.js"
+    "check": "node --check server.js && node --check src/server/index.js && node --check src/server/create-app-server.js && node --check src/proxy.js"
   },
   "keywords": [
     "proxy",

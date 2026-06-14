@@ -20,7 +20,7 @@ export function createNavionCoreServer(options = {}) {
       res.end(JSON.stringify({
         name: "Navion",
         layer: "core",
-        version: "4.0.0",
+        version: "1.0.0",
         runtime: process.version,
         status: "ok",
         prefix: config.prefix,
