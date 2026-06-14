@@ -161,7 +161,7 @@ function findTagEnd(html, from) {
   return -1;
 }
 
-const RUNTIME_VERSION = "1.0.1";
+const RUNTIME_VERSION = "1.0.2";
 
 const NETWORK_PATCH = (base) =>
   `<script>!function(){var b=${JSON.stringify(base)};` +
@@ -225,14 +225,18 @@ const YOUTUBE_HELPER = (base) =>
   `function g(v){if(v)location.href=p("https://www.youtube.com/results?search_query="+encodeURIComponent(v))}` +
   `function r(e){var f=e.target;if(!f||!f.querySelector)return;var v=q();if(v&&f.querySelector('input[name="search_query"],input#search,input[name="q"],yt-searchbox input')){e.preventDefault();e.stopImmediatePropagation();g(v)}}` +
   `function c(e){var t=e.target&&e.target.closest&&e.target.closest('button#search-icon-legacy,button[aria-label="Search"],yt-searchbox button,ytd-searchbox button');if(!t)return;var v=q();if(v){e.preventDefault();e.stopImmediatePropagation();g(v)}}` +
+  `function y(e){if(e.key!=="Enter")return;var t=e.target;if(!t||!t.matches||!t.matches('input[name="search_query"],input#search,input[name="q"],yt-searchbox input'))return;var v=String(t.value||"").trim();if(v){e.preventDefault();e.stopImmediatePropagation();g(v)}}` +
+  `function s(){try{return /\\/shorts(\\/|$)/.test(new URL(location.href).pathname)||/\\/shorts(\\/|$)/.test(new URL(b).pathname)}catch(e){return false}}` +
+  `function z(e){if(!s())return;e.preventDefault();e.stopImmediatePropagation()}` +
   `function vid(){try{var u=new URL(location.href),x=u.searchParams.get("v");if(x)return x;x=new URL(b).searchParams.get("v");if(x)return x;x=(u.pathname.match(/\\/shorts\\/([^/?#]+)/)||[])[1];if(x)return x;return(window.ytInitialPlayerResponse&&window.ytInitialPlayerResponse.videoDetails&&window.ytInitialPlayerResponse.videoDetails.videoId)||""}catch(e){return""}}` +
   `function esc(s){return String(s||"").replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})}` +
   `var nvPlaybackFailed=false;function showEmbed(){if(nvPlaybackFailed||document.getElementById("nvyt-embed-fallback"))return;var v=vid();if(!v)return;nvPlaybackFailed=true;var box=document.createElement("div");box.id="nvyt-embed-fallback";box.style.cssText="position:fixed;inset:0;z-index:2147483646;background:rgba(0,0,0,.92);display:grid;place-items:center;padding:20px";box.innerHTML='<div style="width:min(960px,100%)"><p style="color:#f1f1f1;margin:0 0 12px;font:14px Arial">Navion could not stream this video directly. Showing YouTube embed player.</p><iframe src="'+esc(p("https://www.youtube.com/embed/"+encodeURIComponent(v)+"?playsinline=1&rel=0"))+'" style="width:100%;aspect-ratio:16/9;border:0;border-radius:8px;background:#000" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe><button type="button" style="margin-top:12px;border:1px solid #555;background:#222;color:#fff;border-radius:6px;padding:8px 14px;cursor:pointer">Close</button></div>';document.body.appendChild(box);box.querySelector("button").addEventListener("click",function(){box.remove();nvPlaybackFailed=false})}` +
   `document.addEventListener("error",function(e){var t=e.target;if(!t)return;if(t.tagName==="VIDEO"||t.tagName==="SOURCE"||(t.tagName==="IFRAME"&&String(t.src||"").indexOf("googlevideo")!==-1))setTimeout(showEmbed,300)},true);setInterval(function(){try{var v=document.querySelector("video.html5-main-video,video");if(v&&v.error&&v.error.code>0&&!v.currentTime)setTimeout(showEmbed,800)}catch(e){}},2500);` +
-  `d();setInterval(d,1200);document.addEventListener("submit",r,true);document.addEventListener("click",c,true);addEventListener("load",function(){d()},true);` +
+  `d();setInterval(d,1200);document.addEventListener("submit",r,true);document.addEventListener("click",c,true);document.addEventListener("keydown",y,true);addEventListener("load",function(){d()},true);addEventListener("wheel",z,{capture:true,passive:false});addEventListener("touchmove",z,{capture:true,passive:false});addEventListener("keydown",function(e){if([" ","PageDown","PageUp","ArrowDown","ArrowUp"].indexOf(e.key)!==-1)z(e)},true);` +
   `}();</script>`;
 
 const INJECT = (base, mode, youtubeHelper) =>
+  youtubeHelper ? DARK_MODE_HINT + YOUTUBE_HELPER(base) :
   NETWORK_PATCH(base) +
   DARK_MODE_HINT + `<script>!function(){` +
   `try{window.open=function(u,t){if(typeof u==="string"&&/^_(?:self|top|parent)$/i.test(String(t||"")))location.assign(window.__navion&&window.__navion.rewrite?window.__navion.rewrite(u,window.__navion.base):u);return null}}catch(e){}` +
@@ -255,7 +259,6 @@ const INJECT = (base, mode, youtubeHelper) =>
   `document.addEventListener("click",function(e){var el=e.target&&e.target.closest&&e.target.closest("a[href]");if(!el)return;var h=el.getAttribute("href");if(!h||h.startsWith("#")||h.startsWith("javascript:"))return;var p=c.rewrite(h,_base());if(p&&p!==h)el.setAttribute("href",p);},true);` +
   `document.addEventListener("submit",function(e){var f=e.target;if(!f||!f.action)return;var p=c.rewrite(f.action,_base());if(p&&p!==f.action)f.action=p;},true);` +
   `}();</script>` +
-  (youtubeHelper ? YOUTUBE_HELPER(base) : "") +
   `<script src="/nv.register.js?v=${RUNTIME_VERSION}"></script>` +
   `<script src="/nv.client.js?v=${RUNTIME_VERSION}"></script>`;
 
