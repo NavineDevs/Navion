@@ -122,6 +122,9 @@ function isAdultContentHost(hostname) {
   if (host === "redtube.com" || host.endsWith(".redtube.com")) return true;
   if (host === "spankbang.com" || host.endsWith(".spankbang.com")) return true;
   if (host === "xnxx.com" || host.endsWith(".xnxx.com")) return true;
+  if (host === "uncensoredhentai.xxx" || host.endsWith(".uncensoredhentai.xxx")) return true;
+  if (host === "hentaihaven.xxx" || host.endsWith(".hentaihaven.xxx")) return true;
+  if (host === "hanime.tv" || host.endsWith(".hanime.tv")) return true;
   return false;
 }
 
@@ -164,11 +167,7 @@ function normalizeTargetUrl(targetUrl) {
       (host === "duckduckgo.com" || host === "www.duckduckgo.com" || host === "html.duckduckgo.com") &&
       (target.pathname === "/ai" || target.pathname.startsWith("/ai/") || target.searchParams.get("duckai") === "1" || target.searchParams.get("ia") === "chat" || target.searchParams.get("iax") === "chat")
     ) {
-      const aiUrl = new URL("https://duck.ai/");
-      aiUrl.pathname = target.pathname === "/ai" ? "/" : target.pathname.slice(3) || "/";
-      aiUrl.search = target.search;
-      aiUrl.hash = target.hash;
-      return aiUrl.href;
+      return "https://duck.ai/";
     }
     if (
       (host === "duckduckgo.com" || host === "www.duckduckgo.com" || host === "html.duckduckgo.com") &&

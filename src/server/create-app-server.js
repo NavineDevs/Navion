@@ -200,11 +200,7 @@ function createRouteHelpers(config) {
         (host === "duckduckgo.com" || host === "www.duckduckgo.com" || host === "html.duckduckgo.com") &&
         (targetUrl.pathname === "/ai" || targetUrl.pathname.startsWith("/ai/") || targetUrl.searchParams.get("duckai") === "1" || targetUrl.searchParams.get("ia") === "chat" || targetUrl.searchParams.get("iax") === "chat")
       ) {
-        const aiUrl = new URL(DEFAULT_DUCK_AI_ORIGIN);
-        aiUrl.pathname = targetUrl.pathname === "/ai" ? "/" : targetUrl.pathname.slice(3) || "/";
-        aiUrl.search = targetUrl.search;
-        aiUrl.hash = targetUrl.hash;
-        return aiUrl.href;
+        return DEFAULT_DUCK_AI_ORIGIN;
       }
       if (
         (host === "duckduckgo.com" || host === "www.duckduckgo.com" || host === "html.duckduckgo.com") &&
@@ -476,6 +472,16 @@ export function createServer(options = {}) {
     }
 
     if (url.pathname.startsWith(NAVION_PREFIX)) {
+      const dest = String(req.headers["sec-fetch-dest"] || "").toLowerCase();
+      const accept = String(req.headers.accept || "").toLowerCase();
+      if (dest === "document" && accept.includes("text/html")) {
+        res.writeHead(302, {
+          Location: `/app?open=${encodeURIComponent(url.pathname + url.search + url.hash)}`,
+          "Cache-Control": "no-store",
+        });
+        res.end();
+        return;
+      }
       const { baseTarget } = baseContext;
       const rawNavionPath = url.pathname.slice(NAVION_PREFIX.length);
       let target = null;
