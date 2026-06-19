@@ -66,6 +66,7 @@ const DROP_RES = new Set([
   "connection", "keep-alive", "transfer-encoding", "te", "trailer",
   "upgrade", "content-encoding", "content-security-policy",
   "content-security-policy-report-only", "x-frame-options",
+  "x-content-security-policy", "x-webkit-csp",
   "strict-transport-security",
   "cross-origin-embedder-policy",
   "cross-origin-opener-policy",
@@ -205,13 +206,22 @@ function isStreamableMediaTarget(targetUrl, contentType = "") {
 }
 
 function rewriteMediaManifest(source, baseUrl) {
+  const rewriteManifestUrl = (value) => {
+    const raw = String(value || "").trim();
+    if (!raw || raw.startsWith("#") || /^(?:data:|blob:|javascript:)/i.test(raw)) return value;
+    return rewriteUrl(raw, baseUrl);
+  };
   return String(source || "")
-    .replace(/URI=(["'])([^"']+)\1/g, (m, q, value) => `URI=${q}${rewriteUrl(value, baseUrl)}${q}`)
+    .replace(/\bURI=(["'])([^"']+)\1/g, (m, q, value) => `URI=${q}${rewriteManifestUrl(value)}${q}`)
+    .replace(/\bURL=(["'])([^"']+)\1/g, (m, q, value) => `URL=${q}${rewriteManifestUrl(value)}${q}`)
     .split(/\r?\n/)
     .map((line) => {
       const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith("#")) return line;
-      return line.replace(trimmed, rewriteUrl(trimmed, baseUrl));
+      if (!trimmed) return line;
+      if (trimmed.startsWith("#")) {
+        return line.replace(/(["'])(https?:\/\/[^"']+|\/\/[^"']+|\/[^"']+|\.{1,2}\/[^"']+)\1/g, (m, q, value) => `${q}${rewriteManifestUrl(value)}${q}`);
+      }
+      return line.replace(trimmed, rewriteManifestUrl(trimmed));
     })
     .join("\n");
 }
@@ -961,7 +971,12 @@ function buildOutHeaders(resHeaders, req) {
   for (const [k, v] of Object.entries(resHeaders)) {
     if (!DROP_RES.has(k.toLowerCase())) out[k] = v;
   }
+  for (const key of Object.keys(out)) {
+    const lower = key.toLowerCase();
+    if (DROP_RES.has(lower)) delete out[key];
+  }
   delete out["set-cookie"];
+  delete out["Set-Cookie"];
   if (requestOrigin) {
     out["access-control-allow-origin"] = requestOrigin;
     out["access-control-allow-credentials"] = "true";
@@ -971,7 +986,7 @@ function buildOutHeaders(resHeaders, req) {
 
 function buildCorsPreflightHeaders(req) {
   const requestOrigin = resolveRequestOrigin(req) || "*";
-  const requestHeaders = req.headers["access-control-request-headers"] || "content-type, authorization, x-requested-with, x-youtube-client-name, x-youtube-client-version, x-goog-authuser, x-goog-visitor-id";
+  const requestHeaders = req.headers["access-control-request-headers"] || "range, if-range, accept, accept-language, content-type, authorization, x-requested-with, x-youtube-client-name, x-youtube-client-version, x-goog-authuser, x-goog-visitor-id, x-origin, x-client-data";
   const out = {
     "access-control-allow-origin": requestOrigin,
     "access-control-allow-methods": "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS",
@@ -1007,6 +1022,12 @@ function rewriteLocationHeader(locationValue, baseUrl) {
   } catch {
     return locationValue;
   }
+}
+
+function sanitizeProxyHeaders(headers, req) {
+  const out = buildOutHeaders(headers || {}, req);
+  if (typeof out.location === "string") out.location = rewriteLocationHeader(out.location, req?.navionTargetUrl || req?.url || "");
+  return out;
 }
 
 function escapeHtml(value) {
@@ -1104,6 +1125,7 @@ export async function handleProxy(req, res, url) {
     errorResponse(res, 400, "Invalid URL", "The provided URL could not be decoded or is not a valid http/https address.");
     return;
   }
+  req.navionTargetUrl = targetUrl;
 
   const inCookies = parseCookieHeader(req.headers.cookie || "");
   const sessionId = inCookies.nv_sid || newNavionSessionId();
@@ -1142,6 +1164,7 @@ export async function handleProxy(req, res, url) {
   if (isYouTubeHost && target.searchParams.has("themeRefresh")) {
     target.searchParams.delete("themeRefresh");
     targetUrl = target.href;
+    req.navionTargetUrl = targetUrl;
   }
   const isYouTubeApi = isYouTubeHost && target.pathname.startsWith("/youtubei/");
   const isYouTubeTelemetry = isYouTubeHost && isNonCriticalYouTubeTelemetryPath(target.pathname);
@@ -1294,18 +1317,15 @@ export async function handleProxy(req, res, url) {
     const enc = response.headers["content-encoding"] || "";
     const finalUrl = response.url;
     storeResponseCookies(sessionId, finalUrl || targetUrl, response.headers["set-cookie"]);
-      const outHeaders = buildOutHeaders(response.headers, req);
-      if (setSessionCookie) outHeaders["set-cookie"] = navionSessionCookieValue(sessionId);
-      if (typeof outHeaders.location === "string") {
-        outHeaders.location = rewriteLocationHeader(outHeaders.location, targetUrl);
-      }
-      await runNavionHooks("afterResponse", {
-        req,
-        res,
-        targetUrl,
-        status: response.status,
-        headers: outHeaders,
-      });
+    const outHeaders = sanitizeProxyHeaders(response.headers, req);
+    if (setSessionCookie) outHeaders["set-cookie"] = navionSessionCookieValue(sessionId);
+    await runNavionHooks("afterResponse", {
+      req,
+      res,
+      targetUrl,
+      status: response.status,
+      headers: outHeaders,
+    });
 
     if (response.status >= 400 && isNoiseTarget(targetUrl)) {
       response.body.resume();
@@ -1542,3 +1562,11 @@ export async function handleProxy(req, res, url) {
     proxyFetchErrorResponse(res, req, 502, err?.message || "Proxy fetch failed.", targetUrl);
   }
 }
+
+export const __navionTestInternals = {
+  buildCorsPreflightHeaders,
+  buildOutHeaders,
+  isStreamableMediaTarget,
+  rewriteLocationHeader,
+  rewriteMediaManifest,
+};

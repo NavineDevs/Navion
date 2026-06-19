@@ -21,6 +21,13 @@ function rewriteConstructorUrl(source, name, base) {
   return source.replace(re, (m, lead, pre, q, value) => `${lead}${pre}${q}${rewriteScriptUrlLiteral(value, base)}${q}`);
 }
 
+function rewriteServiceWorkerRegister(source) {
+  return source.replace(
+    /(^|[^\w$.])(navigator\.serviceWorker\.register\s*\(\s*)(['"])([^'"]+)\3([^)]*\))/g,
+    (m, lead) => `${lead}Promise.reject(new DOMException("Blocked by Navion proxy scope","SecurityError"))`
+  );
+}
+
 export function rewriteJs(js, base) {
   if (!js) return js;
 
@@ -33,7 +40,11 @@ export function rewriteJs(js, base) {
   out = rewriteCallUrl(out, "location.replace", base);
   out = rewriteCallUrl(out, "window.location.assign", base);
   out = rewriteCallUrl(out, "window.location.replace", base);
-  out = rewriteCallUrl(out, "navigator.serviceWorker.register", base);
+  out = rewriteCallUrl(out, "self.location.assign", base);
+  out = rewriteCallUrl(out, "self.location.replace", base);
+  out = rewriteCallUrl(out, "globalThis.location.assign", base);
+  out = rewriteCallUrl(out, "globalThis.location.replace", base);
+  out = rewriteServiceWorkerRegister(out);
   out = rewriteConstructorUrl(out, "Worker", base);
   out = rewriteConstructorUrl(out, "SharedWorker", base);
   out = rewriteConstructorUrl(out, "EventSource", base);
@@ -52,7 +63,7 @@ export function rewriteJs(js, base) {
     (m, pre, q, value) => `${pre}${q}${rewriteScriptUrlLiteral(value, base)}${q}`
   );
   out = out.replace(
-    /((?:window\.)?location\.href\s*=\s*)(['"])([^'"]+)\2/g,
+    /((?:(?:window|self|globalThis)\.)?location\.href\s*=\s*)(['"])([^'"]+)\2/g,
     (m, pre, q, value) => `${pre}${q}${rewriteScriptUrlLiteral(value, base)}${q}`
   );
   out = out.replace(
