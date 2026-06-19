@@ -389,6 +389,15 @@ function fallbackAssetResponse(req, targetUrl, contentType) {
   };
 }
 
+function shouldUseAssetFallback(req, targetUrl, contentType = "") {
+  if (!isAssetRequest(req, targetUrl, contentType)) return false;
+  const dest = String(req.headers["sec-fetch-dest"] || "").toLowerCase();
+  const ct = String(contentType || "").toLowerCase();
+  if ((dest === "style" || /\.css(?:$|\?)/i.test(new URL(targetUrl).pathname)) && !ct.includes("text/css")) return true;
+  if ((dest === "script" || /\.(?:js|mjs)(?:$|\?)/i.test(new URL(targetUrl).pathname)) && !ct.includes("javascript") && !ct.includes("ecmascript")) return true;
+  return ct.includes("text/html");
+}
+
 function isDocumentRequest(req) {
   const dest = String(req.headers["sec-fetch-dest"] || "").toLowerCase();
   if (dest === "document" || dest === "iframe" || dest === "frame") return true;
@@ -1364,7 +1373,7 @@ export async function handleProxy(req, res, url) {
       return;
     }
 
-    if (ct.includes("text/html") && isAssetRequest(req, targetUrl, ct)) {
+    if (shouldUseAssetFallback(req, targetUrl, ct)) {
       response.body.resume();
       const fallback = fallbackAssetResponse(req, targetUrl, ct);
       res.writeHead(fallback.status, fallback.headers);
@@ -1567,6 +1576,7 @@ export const __navionTestInternals = {
   buildCorsPreflightHeaders,
   buildOutHeaders,
   isStreamableMediaTarget,
+  shouldUseAssetFallback,
   rewriteLocationHeader,
   rewriteMediaManifest,
 };

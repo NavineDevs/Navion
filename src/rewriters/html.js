@@ -161,7 +161,7 @@ function findTagEnd(html, from) {
   return -1;
 }
 
-const RUNTIME_VERSION = "1.0.6";
+const RUNTIME_VERSION = "1.0.7";
 
 const NETWORK_PATCH = (base) =>
   `<script>!function(){var b=${JSON.stringify(base)};` +
@@ -175,7 +175,7 @@ const NETWORK_PATCH = (base) =>
   `try{var _pr=window.Request;window.Request=function(i,o){return new _pr(k(i),o)}}catch(e){}` +
   `try{var _psb=navigator.sendBeacon;navigator.sendBeacon=function(t,d){if(typeof t==="string")t=u(t);return _psb.call(this,t,d)}}catch(e){}` +
   `try{var _ni=window.Image;window.Image=function(){var a=arguments,i=new _ni(a[0],a[1]);if(typeof a[0]==="string")i.src=u(a[0]);return i};window.Image.prototype=_ni.prototype}catch(e){}` +
-  `try{function _ps(proto,prop){if(!proto)return;var d=Object.getOwnPropertyDescriptor(proto,prop);if(!d||typeof d.set!=="function")return;Object.defineProperty(proto,prop,{configurable:true,enumerable:d.enumerable,get:d.get,set:function(v){if(typeof v==="string")v=u(v);return d.set.call(this,v)}})}_ps(HTMLImageElement&&HTMLImageElement.prototype,"src");_ps(HTMLVideoElement&&HTMLVideoElement.prototype,"src");_ps(HTMLAudioElement&&HTMLAudioElement.prototype,"src");_ps(HTMLSourceElement&&HTMLSourceElement.prototype,"src")}catch(e){}` +
+  `try{function _ps(proto,prop){if(!proto)return;var d=Object.getOwnPropertyDescriptor(proto,prop);if(!d||typeof d.set!=="function")return;Object.defineProperty(proto,prop,{configurable:true,enumerable:d.enumerable,get:d.get,set:function(v){if(typeof v==="string")v=u(v);return d.set.call(this,v)}})}_ps(HTMLImageElement&&HTMLImageElement.prototype,"src");_ps(HTMLVideoElement&&HTMLVideoElement.prototype,"src");_ps(HTMLAudioElement&&HTMLAudioElement.prototype,"src");_ps(HTMLSourceElement&&HTMLSourceElement.prototype,"src");_ps(HTMLScriptElement&&HTMLScriptElement.prototype,"src");_ps(HTMLIFrameElement&&HTMLIFrameElement.prototype,"src");_ps(HTMLLinkElement&&HTMLLinkElement.prototype,"href");_ps(HTMLAnchorElement&&HTMLAnchorElement.prototype,"href");_ps(HTMLFormElement&&HTMLFormElement.prototype,"action")}catch(e){}` +
   `}();</script>`;
 
 const YOUTUBE_FALLBACK = (base) =>

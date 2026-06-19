@@ -8,6 +8,7 @@ const {
   buildCorsPreflightHeaders,
   buildOutHeaders,
   isStreamableMediaTarget,
+  shouldUseAssetFallback,
   rewriteLocationHeader,
   rewriteMediaManifest,
 } = __navionTestInternals;
@@ -99,6 +100,26 @@ test("youtube html receives normal runtime and youtube helper", () => {
   });
 
   assert.match(out, /window\.__navionRuntimeLoaded/);
-  assert.match(out, /\/nv\.client\.js\?v=1\.0\.6/);
+  assert.match(out, /\/nv\.client\.js\?v=1\.0\.7/);
+  assert.match(out, /HTMLScriptElement&&HTMLScriptElement\.prototype/);
+  assert.match(out, /HTMLLinkElement&&HTMLLinkElement\.prototype/);
   assert.match(out, /yt-searchbox/);
+});
+
+test("asset fallback rejects bad css and script mime types", () => {
+  assert.equal(shouldUseAssetFallback(
+    { headers: { "sec-fetch-dest": "style", accept: "text/css" } },
+    "https://www.youtube.com/s/player/www-player.css",
+    "image/jpeg"
+  ), true);
+  assert.equal(shouldUseAssetFallback(
+    { headers: { "sec-fetch-dest": "script", accept: "application/javascript" } },
+    "https://www.youtube.com/s/desktop/base.js",
+    "text/html"
+  ), true);
+  assert.equal(shouldUseAssetFallback(
+    { headers: { "sec-fetch-dest": "style", accept: "text/css" } },
+    "https://www.youtube.com/s/player/www-player.css",
+    "text/css; charset=utf-8"
+  ), false);
 });
