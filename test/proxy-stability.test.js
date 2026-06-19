@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { rewriteHtml } from "../src/rewriters/html.js";
 import { rewriteJs } from "../src/rewriters/js.js";
 import { __navionTestInternals } from "../src/proxy.js";
 
@@ -87,4 +88,17 @@ test("js rewriter blocks site service workers and rewrites URL-bearing globals o
   assert.match(out, /globalThis\.location\.assign\('\/nv\//);
   assert.match(out, /window\.location\.replace\('\/nv\//);
   assert.match(out, /self\.foo \+ window\.bar \+ globalThis\.baz/);
+});
+
+test("youtube html receives normal runtime and youtube helper", () => {
+  const out = rewriteHtml("<html><head></head><body></body></html>", "https://www.youtube.com/", {
+    injectRuntime: true,
+    runtimeMode: "full",
+    rewriteMode: "full",
+    injectYouTubeHelper: true,
+  });
+
+  assert.match(out, /window\.__navionRuntimeLoaded/);
+  assert.match(out, /\/nv\.client\.js\?v=1\.0\.5/);
+  assert.match(out, /yt-searchbox/);
 });

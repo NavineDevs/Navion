@@ -161,7 +161,7 @@ function findTagEnd(html, from) {
   return -1;
 }
 
-const RUNTIME_VERSION = "1.0.4";
+const RUNTIME_VERSION = "1.0.5";
 
 const NETWORK_PATCH = (base) =>
   `<script>!function(){var b=${JSON.stringify(base)};` +
@@ -236,7 +236,6 @@ const YOUTUBE_HELPER = (base) =>
   `}();</script>`;
 
 const INJECT = (base, mode, youtubeHelper) =>
-  youtubeHelper ? DARK_MODE_HINT + YOUTUBE_HELPER(base) :
   NETWORK_PATCH(base) +
   DARK_MODE_HINT + `<script>!function(){` +
   `if(window.__navionRuntimeLoaded)return;window.__navionRuntimeLoaded=true;window.__navionScope=window.__navionScope||{window:window,self:window.self||window,globalThis:window.globalThis||window};` +
@@ -261,7 +260,8 @@ const INJECT = (base, mode, youtubeHelper) =>
   `document.addEventListener("submit",function(e){var f=e.target;if(!f||!f.action)return;var p=c.rewrite(f.action,_base());if(p&&p!==f.action)f.action=p;},true);` +
   `}();</script>` +
   `<script src="/nv.register.js?v=${RUNTIME_VERSION}"></script>` +
-  `<script src="/nv.client.js?v=${RUNTIME_VERSION}"></script>`;
+  `<script src="/nv.client.js?v=${RUNTIME_VERSION}"></script>` +
+  (youtubeHelper ? YOUTUBE_HELPER(base) : "");
 
 export function rewriteHtml(html, base, options = {}) {
   const injectRuntime = options.injectRuntime !== false;

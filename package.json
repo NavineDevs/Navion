@@ -1,6 +1,6 @@
 {
   "name": "navion",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Zero-dependency web proxy engine with URL, HTML, CSS, and JS rewriting",
   "repository": {
     "type": "git",
