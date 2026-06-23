@@ -116,7 +116,9 @@ function isPornhubHost(hostname) {
 function isAdultContentHost(hostname) {
   const host = String(hostname || "").toLowerCase();
   if (isPornhubHost(host)) return true;
+  if (host.endsWith(".phncdn.com") || host.endsWith(".phprcdn.com") || host.endsWith(".trafficjunky.net")) return true;
   if (host === "xvideos.com" || host.endsWith(".xvideos.com")) return true;
+  if (host.endsWith(".xvideos-cdn.com")) return true;
   if (host === "xhamster.com" || host.endsWith(".xhamster.com")) return true;
   if (host === "xhamster.desi" || host.endsWith(".xhamster.desi")) return true;
   if (host === "eporner.com" || host.endsWith(".eporner.com")) return true;
@@ -126,6 +128,9 @@ function isAdultContentHost(hostname) {
   if (host === "uncensoredhentai.xxx" || host.endsWith(".uncensoredhentai.xxx")) return true;
   if (host === "hentaihaven.xxx" || host.endsWith(".hentaihaven.xxx")) return true;
   if (host === "hanime.tv" || host.endsWith(".hanime.tv")) return true;
+  if (host.endsWith(".hstream.moe")) return true;
+  if (host.endsWith(".sb-cd.com") || host.endsWith(".streamsb.net")) return true;
+  if (host.endsWith(".doodstream.com") || host.endsWith(".doodcdn.co")) return true;
   return false;
 }
 
@@ -1224,8 +1229,8 @@ export async function handleProxy(req, res, url) {
   }
 
   if (isAdultContentHost(host)) {
-    fwdHeaders.referer = `${target.origin}/`;
-    fwdHeaders.origin = target.origin;
+    fwdHeaders.referer = fwdHeaders.referer || `${target.origin}/`;
+    fwdHeaders.origin = fwdHeaders.origin || target.origin;
     fwdHeaders["accept-language"] = fwdHeaders["accept-language"] || "en-US,en;q=0.9";
     fwdHeaders.accept = fwdHeaders.accept || "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8";
     fwdHeaders["cache-control"] = "max-age=0";
