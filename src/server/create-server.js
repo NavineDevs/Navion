@@ -1,6 +1,11 @@
 import http from "node:http";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { handleProxy } from "../proxy.js";
 import { NAVION_CORE_CONFIG } from "./config/navion.config.js";
+
+const pkg = JSON.parse(fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "../../package.json"), "utf8"));
 
 export function createNavionCoreServer(options = {}) {
   const config = {
@@ -20,12 +25,18 @@ export function createNavionCoreServer(options = {}) {
       res.end(JSON.stringify({
         name: "Navion",
         layer: "core",
-        version: "1.0.0",
+        version: pkg.version,
         runtime: process.version,
         status: "ok",
         prefix: config.prefix,
         apiEndpoint: config.apiEndpoint,
         mode: "core-backend",
+        upstreamProxy: {
+          enabled: Boolean(config.upstreamProxy?.proxy || config.upstreamProxy?.auto),
+          all: Boolean(config.upstreamProxy?.all),
+          auto: Boolean(config.upstreamProxy?.auto),
+          hostRules: config.upstreamProxy?.hosts?.length || 0,
+        },
       }));
       return;
     }

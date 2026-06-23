@@ -10,6 +10,11 @@ import { rewriteJs, rewriteCdnUrlLiterals } from "./rewriters/js.js";
 import { rewriteCss } from "./rewriters/css.js";
 import { NAVION_CORE_CONFIG } from "./server/config/navion.config.js";
 import { runNavionHooks } from "./server/pipeline/hooks.js";
+import {
+  connectThroughUpstreamProxy,
+  resolveUpstreamProxyForHost,
+  shouldUseUpstreamProxy,
+} from "./internal/upstream-proxy.js";
 
 const PREFIX = NAVION_CORE_CONFIG.prefix;
 const MAX_REDIRECTS = NAVION_CORE_CONFIG.fetch.maxRedirects;
@@ -606,50 +611,124 @@ function isRecoverableSocketError(err) {
   );
 }
 
+async function resolveFetchProxy(hostname, options) {
+  const config = NAVION_CORE_CONFIG.upstreamProxy;
+  const forced = options?.upstreamProxy || null;
+  if (forced) return forced;
+  return resolveUpstreamProxyForHost(hostname, config, {
+    probeHost: hostname,
+    timeoutMs: Math.min(options?.timeoutMs || NAVION_CORE_CONFIG.fetch.timeoutMs, 5000),
+  });
+}
+
 function rawFetch(targetUrl, options, redirectCount = 0) {
+  return rawFetchInternal(targetUrl, options, redirectCount);
+}
+
+function rawFetchInternal(targetUrl, options, redirectCount = 0) {
   return new Promise((resolve, reject) => {
     const parsed = new URL(targetUrl);
     const isHttps = parsed.protocol === "https:";
     const lib = isHttps ? https : http;
-    const useAgent = options.fresh ? undefined : (isHttps ? httpsAgent : httpAgent);
+    const targetPort = parseInt(parsed.port, 10) || (isHttps ? 443 : 80);
+    const timeoutMs = options.timeoutMs || NAVION_CORE_CONFIG.fetch.timeoutMs;
+    let settled = false;
 
-    const req = lib.request({
-      hostname: parsed.hostname,
-      port: parsed.port || (isHttps ? 443 : 80),
-      path: parsed.pathname + parsed.search,
-      method: options.method || "GET",
-      headers: options.headers || {},
-      agent: useAgent,
-      timeout: options.timeoutMs || NAVION_CORE_CONFIG.fetch.timeoutMs,
-    }, (res) => {
-      const { statusCode: status, headers } = res;
-      const location = headers["location"];
+    const finish = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      fn(value);
+    };
 
-      if (status >= 300 && status < 400 && location && redirectCount < MAX_REDIRECTS) {
-        res.resume();
-        resolve(rawFetch(new URL(location, targetUrl).href, options, redirectCount + 1));
-        return;
+    resolveFetchProxy(parsed.hostname, options).then((proxy) => {
+      const useAgent = !proxy && !options.fresh ? (isHttps ? httpsAgent : httpAgent) : false;
+      const reqOptions = {
+        hostname: parsed.hostname,
+        port: targetPort,
+        path: parsed.pathname + parsed.search,
+        method: options.method || "GET",
+        headers: options.headers || {},
+        agent: useAgent,
+        timeout: timeoutMs,
+      };
+
+      if (proxy) {
+        reqOptions.agent = false;
+        reqOptions.createConnection = (_opts, cb) => {
+          connectThroughUpstreamProxy(proxy, parsed.hostname, targetPort, isHttps, timeoutMs)
+            .then((socket) => cb(null, socket))
+            .catch((err) => cb(err));
+        };
       }
 
-      resolve({ status, headers, body: res, url: targetUrl });
-    });
+      const req = lib.request(reqOptions, (res) => {
+        const { statusCode: status, headers } = res;
+        const location = headers["location"];
 
-    req.on("error", reject);
-    req.on("timeout", () => { req.destroy(); reject(new Error("Request timed out")); });
+        if (status >= 300 && status < 400 && location && redirectCount < MAX_REDIRECTS) {
+          res.resume();
+          rawFetchInternal(new URL(location, targetUrl).href, options, redirectCount + 1)
+            .then((value) => finish(resolve, value))
+            .catch((err) => finish(reject, err));
+          return;
+        }
 
-    if (options.body) req.write(options.body);
-    req.end();
+        finish(resolve, { status, headers, body: res, url: targetUrl });
+      });
+
+      req.on("error", reject);
+      req.on("timeout", () => { req.destroy(); reject(new Error("Request timed out")); });
+
+      if (options.body) req.write(options.body);
+      req.end();
+    }).catch(reject);
   });
 }
 
 async function navionFetchWithRetry(targetUrl, options, retries = 1) {
   let lastError = null;
+  let proxyRetried = false;
+  const hostname = (() => {
+    try {
+      return new URL(targetUrl).hostname;
+    } catch {
+      return "";
+    }
+  })();
+  const proxyConfig = NAVION_CORE_CONFIG.upstreamProxy;
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      const fetchOptions = attempt > 0 ? { ...options, fresh: true } : options;
+      const fetchOptions = attempt > 0 ? { ...options, fresh: true } : { ...options };
+      if (
+        !proxyRetried &&
+        !fetchOptions.upstreamProxy &&
+        proxyConfig?.auto &&
+        shouldUseUpstreamProxy(hostname, proxyConfig)
+      ) {
+        const discovered = await resolveUpstreamProxyForHost(hostname, proxyConfig, { probeHost: hostname });
+        if (discovered) fetchOptions.upstreamProxy = discovered;
+      }
       return await rawFetch(targetUrl, fetchOptions);
     } catch (error) {
       lastError = error;
+      if (
+        !proxyRetried &&
+        !options?.upstreamProxy &&
+        isRecoverableSocketError(error) &&
+        proxyConfig &&
+        (proxyConfig.auto || proxyConfig.proxy) &&
+        shouldUseUpstreamProxy(hostname, proxyConfig)
+      ) {
+        const discovered = await resolveUpstreamProxyForHost(hostname, proxyConfig, { probeHost: hostname });
+        if (discovered) {
+          proxyRetried = true;
+          try {
+            return await rawFetch(targetUrl, { ...options, fresh: true, upstreamProxy: discovered });
+          } catch (retryError) {
+            lastError = retryError;
+          }
+        }
+      }
       if (attempt >= retries || !isRecoverableSocketError(error)) break;
     }
   }

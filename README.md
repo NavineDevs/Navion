@@ -102,6 +102,40 @@ Run the core directly:
 npx navion-core
 ```
 
+## Upstream proxy for ISP-blocked sites
+
+Some networks reset TCP connections to adult sites (`ECONNRESET`) before Navion can fetch them. Navion cannot bypass ISP filtering on its own; route blocked hosts through a local VPN, Tor, or SOCKS5/HTTP proxy instead.
+
+Set environment variables before starting Navion or Navion-App:
+
+```bash
+set NAVION_UPSTREAM_PROXY=socks5://127.0.0.1:1080
+set NAVION_UPSTREAM_PROXY_AUTO=1
+npm start
+```
+
+Supported proxy URLs:
+
+- `socks5://127.0.0.1:1080`
+- `http://127.0.0.1:7890`
+- `http://user:pass@127.0.0.1:8888`
+
+Environment variables:
+
+- `NAVION_UPSTREAM_PROXY` - SOCKS5 or HTTP proxy URL
+- `NAVION_UPSTREAM_PROXY_HOSTS` - comma-separated host rules (default: pornhub, hanime, and related adult CDNs)
+- `NAVION_UPSTREAM_PROXY_ALL=1` - route all upstream fetches through the proxy
+- `NAVION_UPSTREAM_PROXY_AUTO=1` - probe common local proxy ports (`1080`, `9050`, `7890`, `8080`, `8888`, `3128`) for blocked hosts
+
+Example with Tor:
+
+```bash
+set NAVION_UPSTREAM_PROXY=socks5://127.0.0.1:9050
+set NAVION_UPSTREAM_PROXY_HOSTS=*.pornhub.com,hanime.tv,*.hanime.tv
+```
+
+Check `/api/navion-status` for `upstreamProxy.enabled` after startup.
+
 ## Branding / Credits
 
 - Company: **Navine**
