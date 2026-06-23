@@ -1230,7 +1230,11 @@ export async function handleProxy(req, res, url) {
 
   if (isAdultContentHost(host)) {
     fwdHeaders.referer = fwdHeaders.referer || `${target.origin}/`;
-    fwdHeaders.origin = fwdHeaders.origin || target.origin;
+    if ((req.method || "GET").toUpperCase() === "GET" || (req.method || "GET").toUpperCase() === "HEAD") {
+      delete fwdHeaders.origin;
+    } else {
+      fwdHeaders.origin = fwdHeaders.origin || target.origin;
+    }
     fwdHeaders["accept-language"] = fwdHeaders["accept-language"] || "en-US,en;q=0.9";
     fwdHeaders.accept = fwdHeaders.accept || "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8";
     fwdHeaders["cache-control"] = "max-age=0";
