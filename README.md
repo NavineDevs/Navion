@@ -69,11 +69,13 @@ Install from npm after publishing:
 npm install navion
 ```
 
-Install from a local checkout:
+Install from a local checkout (used by Navion-App development):
 
 ```bash
 npm install ../Navion
 ```
+
+Set `NAVION_USE_LOCAL_CORE=1` in Navion-App to force the local link when both repos are checked out side by side.
 
 Import the core proxy API:
 

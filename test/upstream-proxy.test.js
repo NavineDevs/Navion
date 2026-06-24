@@ -4,6 +4,7 @@ import {
   __upstreamProxyTestInternals,
   createUpstreamProxyConfig,
   shouldUseUpstreamProxy,
+  isKnownBlockedHost,
 } from "../src/internal/upstream-proxy.js";
 
 const { hostMatchesPattern, parseHostRules, parseProxyUrl } = __upstreamProxyTestInternals;
@@ -56,6 +57,13 @@ test("host pattern matcher supports wildcard suffixes", () => {
   assert.equal(hostMatchesPattern("cdn.phncdn.com", "*.phncdn.com"), true);
   assert.equal(hostMatchesPattern("phncdn.com", "*.phncdn.com"), true);
   assert.equal(hostMatchesPattern("example.com", "*.phncdn.com"), false);
+});
+
+test("known blocked hosts include pornhub and hanime defaults", () => {
+  const config = createUpstreamProxyConfig({});
+  assert.equal(isKnownBlockedHost("www.pornhub.com", config), true);
+  assert.equal(isKnownBlockedHost("hanime.tv", config), true);
+  assert.equal(isKnownBlockedHost("www.youtube.com", config), false);
 });
 
 test("parseHostRules supports star routing", () => {

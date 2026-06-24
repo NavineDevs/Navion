@@ -14,6 +14,7 @@ import {
   connectThroughUpstreamProxy,
   resolveUpstreamProxyForHost,
   shouldUseUpstreamProxy,
+  isKnownBlockedHost,
 } from "./internal/upstream-proxy.js";
 
 const PREFIX = NAVION_CORE_CONFIG.prefix;
@@ -416,8 +417,36 @@ function isDocumentRequest(req) {
   return mode === "navigate" || accept.includes("text/html") || accept.includes("application/xhtml+xml");
 }
 
-function redirectToErrorPage(res, targetUrl) {
-  const location = targetUrl ? `/nav/error?u=${encodeURIComponent(encode(targetUrl))}` : "/nav/error";
+function isUpstreamBlockedFetchError(err, hostname) {
+  if (!err || !hostname) return false;
+  if (!isKnownBlockedHost(hostname, NAVION_CORE_CONFIG.upstreamProxy)) return false;
+  const code = String(err.code || "").toUpperCase();
+  const msg = String(err.message || "").toLowerCase();
+  return (
+    code === "ECONNRESET" ||
+    code === "ETIMEDOUT" ||
+    code === "ECONNREFUSED" ||
+    code === "EHOSTUNREACH" ||
+    code === "ENETUNREACH" ||
+    msg.includes("econnreset") ||
+    msg.includes("timed out") ||
+    msg.includes("proxy connect") ||
+    msg.includes("proxy handshake")
+  );
+}
+
+function upstreamBlockedMessage(hostname) {
+  const host = String(hostname || "this site");
+  return `Could not reach ${host}. Your network may block this host. Set NAVION_UPSTREAM_PROXY to a local SOCKS5 or HTTP proxy (example: socks5://127.0.0.1:1080). Add NAVION_UPSTREAM_PROXY_AUTO=1 to probe common local proxy ports.`;
+}
+
+function redirectToErrorPage(res, targetUrl, details = {}) {
+  const params = new URLSearchParams();
+  if (targetUrl) params.set("u", encode(targetUrl));
+  if (details.code) params.set("c", details.code);
+  if (details.message) params.set("m", details.message);
+  const query = params.toString();
+  const location = query ? `/nav/error?${query}` : "/nav/error";
   if (!res.headersSent) {
     res.writeHead(302, { Location: location, "Cache-Control": "no-store" });
   }
@@ -1640,6 +1669,20 @@ export async function handleProxy(req, res, url) {
         }
       } catch {}
     }
+    if (targetUrl) {
+      try {
+        const failedHost = new URL(targetUrl).hostname.toLowerCase();
+        if (isUpstreamBlockedFetchError(err, failedHost)) {
+          const message = upstreamBlockedMessage(failedHost);
+          if (isDocumentRequest(req)) {
+            redirectToErrorPage(res, targetUrl, { code: "ISP_BLOCKED", message });
+            return;
+          }
+          proxyFetchErrorResponse(res, req, 502, message, targetUrl);
+          return;
+        }
+      } catch {}
+    }
     if (targetUrl && isDocumentRequest(req)) {
       redirectToErrorPage(res, targetUrl);
       return;
@@ -1667,4 +1710,6 @@ export const __navionTestInternals = {
   shouldUseAssetFallback,
   rewriteLocationHeader,
   rewriteMediaManifest,
+  isUpstreamBlockedFetchError,
+  upstreamBlockedMessage,
 };

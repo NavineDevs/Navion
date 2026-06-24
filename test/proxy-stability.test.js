@@ -11,6 +11,8 @@ const {
   shouldUseAssetFallback,
   rewriteLocationHeader,
   rewriteMediaManifest,
+  isUpstreamBlockedFetchError,
+  upstreamBlockedMessage,
 } = __navionTestInternals;
 
 test("proxied response headers strip frame and CSP policy", () => {
@@ -100,7 +102,7 @@ test("youtube html receives normal runtime and youtube helper", () => {
   });
 
   assert.match(out, /window\.__navionRuntimeLoaded/);
-  assert.match(out, /\/nv\.client\.js\?v=1\.0\.11/);
+  assert.match(out, /\/nv\.client\.js\?v=1\.0\.12/);
   assert.match(out, /HTMLScriptElement&&HTMLScriptElement\.prototype/);
   assert.match(out, /HTMLLinkElement&&HTMLLinkElement\.prototype/);
   assert.match(out, /yt-searchbox/);
@@ -122,4 +124,12 @@ test("asset fallback rejects bad css and script mime types", () => {
     "https://www.youtube.com/s/player/www-player.css",
     "text/css; charset=utf-8"
   ), false);
+});
+
+test("upstream blocked fetch errors produce actionable proxy guidance", () => {
+  const err = Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" });
+  assert.equal(isUpstreamBlockedFetchError(err, "www.pornhub.com"), true);
+  assert.equal(isUpstreamBlockedFetchError(err, "www.youtube.com"), false);
+  assert.match(upstreamBlockedMessage("hanime.tv"), /NAVION_UPSTREAM_PROXY/);
+  assert.match(upstreamBlockedMessage("hanime.tv"), /NAVION_UPSTREAM_PROXY_AUTO/);
 });

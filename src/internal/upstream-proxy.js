@@ -93,13 +93,18 @@ export function createUpstreamProxyConfig(env = process.env) {
   };
 }
 
+export function isKnownBlockedHost(hostname, config) {
+  if (!config) return false;
+  const host = String(hostname || "").toLowerCase();
+  return config.hosts.some((pattern) => hostMatchesPattern(host, pattern));
+}
+
 export function shouldUseUpstreamProxy(hostname, config) {
   if (!config) return false;
   if (config.all && config.proxy) return true;
   if (!config.proxy && !config.auto) return false;
   if (config.hosts.includes("*")) return Boolean(config.proxy);
-  const host = String(hostname || "").toLowerCase();
-  return config.hosts.some((pattern) => hostMatchesPattern(host, pattern));
+  return isKnownBlockedHost(hostname, config);
 }
 
 function readUntilHeaders(socket, timeoutMs) {
