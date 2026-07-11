@@ -176,7 +176,7 @@ function isAdultContentHost(hostname) {
   if (host === "uncensoredhentai.xxx" || host.endsWith(".uncensoredhentai.xxx")) return true;
   if (host === "hentaihaven.xxx" || host.endsWith(".hentaihaven.xxx")) return true;
   if (host === "hanime.tv" || host.endsWith(".hanime.tv")) return true;
-  if (host.endsWith(".hstream.moe")) return true;
+  if (host === "hstream.moe" || host.endsWith(".hstream.moe")) return true;
   if (host.endsWith(".sb-cd.com") || host.endsWith(".streamsb.net")) return true;
   if (host.endsWith(".doodstream.com") || host.endsWith(".doodcdn.co")) return true;
   return false;
@@ -215,6 +215,10 @@ function normalizeTargetUrl(targetUrl) {
     }
     if (host === "xhamster.com" || host === "xhamster.desi") {
       target.hostname = host === "xhamster.desi" ? "xhamster.desi" : "xhamster.com";
+      return target.href;
+    }
+    if (host === "hanime.tv" || host === "www.hanime.tv") {
+      target.hostname = "hstream.moe";
       return target.href;
     }
     if (

@@ -196,6 +196,10 @@ function createRouteHelpers(config) {
         targetUrl.hostname = "www.pornhub.com";
         return targetUrl.href;
       }
+      if (host === "hanime.tv" || host === "www.hanime.tv") {
+        targetUrl.hostname = "hstream.moe";
+        return targetUrl.href;
+      }
       if (
         (host === "duckduckgo.com" || host === "www.duckduckgo.com" || host === "html.duckduckgo.com") &&
         (targetUrl.pathname === "/ai" || targetUrl.pathname.startsWith("/ai/") || targetUrl.searchParams.get("duckai") === "1" || targetUrl.searchParams.get("ia") === "chat" || targetUrl.searchParams.get("iax") === "chat")
