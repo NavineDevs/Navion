@@ -111,6 +111,20 @@ const DROP_RES = new Set([
 
 const BASE_HEADERS = { ...NAVION_CORE_CONFIG.baseHeaders };
 
+const CHROME_CLIENT_HINTS = {
+  "sec-ch-ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
+  "sec-ch-ua-mobile": "?0",
+  "sec-ch-ua-platform": '"Windows"',
+};
+
+function seedAdultUpstreamCookies(hostname, headers) {
+  const host = String(hostname || "").toLowerCase();
+  if (!isPornhubHost(host)) return;
+  const seeds = ["accessAgeDisclaimerPH=1", "age_verified=1", "accessPH=1", "cookieConsent=3", "cookieBannerState=1"];
+  const existing = String(headers.cookie || "").trim();
+  headers.cookie = existing ? `${existing}; ${seeds.join("; ")}` : seeds.join("; ");
+}
+
 function isNoiseTarget(targetUrl) {
   try {
     const parsed = new URL(targetUrl);
@@ -1385,6 +1399,7 @@ export async function handleProxy(req, res, url) {
   }
 
   if (isAdultContentHost(host)) {
+    Object.assign(fwdHeaders, CHROME_CLIENT_HINTS);
     fwdHeaders.referer = fwdHeaders.referer || `${target.origin}/`;
     if ((req.method || "GET").toUpperCase() === "GET" || (req.method || "GET").toUpperCase() === "HEAD") {
       delete fwdHeaders.origin;
@@ -1398,6 +1413,7 @@ export async function handleProxy(req, res, url) {
     fwdHeaders["sec-fetch-site"] = fwdHeaders["sec-fetch-site"] || "none";
     fwdHeaders["sec-fetch-mode"] = fwdHeaders["sec-fetch-mode"] || "navigate";
     fwdHeaders["sec-fetch-dest"] = fwdHeaders["sec-fetch-dest"] || "document";
+    seedAdultUpstreamCookies(host, fwdHeaders);
   }
 
   if (isGoogleVideo) {
@@ -1473,7 +1489,15 @@ export async function handleProxy(req, res, url) {
       host === "google.com" ||
       isGoogleVideo
     ) ? 3 : documentRequest ? 1 : isGoogleVideo || isYouTubeApi ? 2 : 0;
-    const response = await navionFetchWithRetry(targetUrl, { method, headers: fwdHeaders, body, timeoutMs: requestTimeoutMs }, retryCount);
+    let response = await navionFetchWithRetry(targetUrl, { method, headers: fwdHeaders, body, timeoutMs: requestTimeoutMs }, retryCount);
+    if (response.status === 403 && isAdultContentHost(host)) {
+      response.body.resume();
+      response = await navionFetchWithRetry(
+        targetUrl,
+        { method, headers: { ...fwdHeaders, "cache-control": "no-cache", pragma: "no-cache" }, body, timeoutMs: requestTimeoutMs + 8000, fresh: true },
+        retryCount + 2
+      );
+    }
     if (
       isYouTubeApi &&
       isNonCriticalYouTubeApiPath(target.pathname) &&
@@ -1580,7 +1604,8 @@ export async function handleProxy(req, res, url) {
       try {
         const htmlHost = new URL(finalUrl).hostname.toLowerCase();
         if (
-          htmlHost === "navianime.vercel.app"
+          htmlHost === "navianime.vercel.app" ||
+          htmlHost.endsWith(".vercel.app")
         ) {
           injectRuntime = true;
           runtimeMode = "full";

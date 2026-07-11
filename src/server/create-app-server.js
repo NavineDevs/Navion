@@ -475,12 +475,19 @@ export function createServer(options = {}) {
       const dest = String(req.headers["sec-fetch-dest"] || "").toLowerCase();
       const accept = String(req.headers.accept || "").toLowerCase();
       if (dest === "document" && accept.includes("text/html")) {
-        res.writeHead(302, {
-          Location: `/app?open=${encodeURIComponent(url.pathname + url.search + url.hash)}`,
-          "Cache-Control": "no-store",
-        });
-        res.end();
-        return;
+        const referer = String(req.headers.referer || "");
+        const fromShell = referer.includes("/app") || referer.endsWith("/") || referer.includes("/index.html");
+        if (!fromShell) {
+          res.writeHead(302, {
+            Location: `/app?open=${encodeURIComponent(url.pathname + url.search + url.hash)}`,
+            "Cache-Control": "no-store",
+          });
+          res.end();
+          return;
+        }
+      }
+      if (dest === "iframe" && accept.includes("text/html")) {
+        // Always proxy iframe navigations directly.
       }
       const { baseTarget } = baseContext;
       const rawNavionPath = url.pathname.slice(NAVION_PREFIX.length);

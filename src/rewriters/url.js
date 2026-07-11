@@ -1,8 +1,7 @@
 export const PREFIX = "/nv/";
 
 const BYPASS_SCHEME_RE = /^(?:javascript:|data:|blob:|mailto:|tel:|about:|chrome:|edge:|firefox:|opera:|brave:|file:|filesystem:)/i;
-const LOCAL_PATHS = new Set([
-  "/",
+const NAVION_SHELL_PATHS = new Set([
   "/app",
   "/index.html",
   "/api/fetch",
@@ -83,7 +82,7 @@ export function rewriteUrl(url, base) {
     if (base) {
       try {
         const baseUrl = new URL(base);
-        if (parsed.origin === baseUrl.origin && LOCAL_PATHS.has(parsed.pathname)) return url;
+        if (NAVION_SHELL_PATHS.has(parsed.pathname)) return url;
         if (parsed.origin === baseUrl.origin) {
           return PREFIX + encode(parsed.origin + "/") + parsed.pathname + parsed.search + parsed.hash;
         }
