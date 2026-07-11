@@ -104,9 +104,21 @@ Run the core directly:
 npx navion-core
 ```
 
-## Upstream proxy for ISP-blocked sites
+## Built-in DNS-over-HTTPS (no external dependency)
 
-Some networks reset TCP connections to adult sites (`ECONNRESET`) before Navion can fetch them. Navion cannot bypass ISP filtering on its own; route blocked hosts through a local VPN, Tor, or SOCKS5/HTTP proxy instead.
+Navion resolves every upstream hostname through built-in DNS-over-HTTPS (DoH) using only Node core modules. This bypasses ISP DNS-based blocking of adult and other filtered sites without any external proxy, VPN, or npm package. Results are cached per host with TTL, and Navion falls back to system DNS when DoH is unavailable.
+
+DoH is enabled by default. Environment variables:
+
+- `NAVION_DOH=0` - disable DoH and use system DNS only
+- `NAVION_DOH_ENDPOINTS` - comma-separated DoH JSON endpoints (default: Cloudflare, Google, Quad9)
+- `NAVION_DOH_TIMEOUT` - per-request timeout in ms (default: `4000`)
+
+Check `/api/navion-status` for `dns.doh` after startup.
+
+## Upstream proxy for network-level (SNI/IP) blocking
+
+DoH handles DNS-based filtering. If a network blocks by SNI or IP after DNS resolves, route blocked hosts through a local VPN, Tor, or SOCKS5/HTTP proxy instead.
 
 Set environment variables before starting Navion or Navion-App:
 

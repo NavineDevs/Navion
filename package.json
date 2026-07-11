@@ -1,7 +1,7 @@
 {
   "name": "navion",
-  "version": "1.0.12",
-  "description": "Zero-dependency web proxy engine with URL, HTML, CSS, and JS rewriting",
+  "version": "1.0.13",
+  "description": "Zero-dependency web proxy engine with URL, HTML, CSS, and JS rewriting and built-in DNS-over-HTTPS resolution",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/NavineDevs/Navion.git"
@@ -34,7 +34,7 @@
   ],
   "scripts": {
     "start": "node server.js",
-    "check": "node --check server.js && node --check src/server/index.js && node --check src/server/create-app-server.js && node --check src/proxy.js",
+    "check": "node --check server.js && node --check src/server/index.js && node --check src/server/create-app-server.js && node --check src/proxy.js && node --check src/internal/doh-resolver.js",
     "test": "node --test"
   },
   "keywords": [

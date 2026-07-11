@@ -16,8 +16,10 @@ import {
   shouldUseUpstreamProxy,
   isKnownBlockedHost,
 } from "./internal/upstream-proxy.js";
+import { createDohLookup } from "./internal/doh-resolver.js";
 
 const PREFIX = NAVION_CORE_CONFIG.prefix;
+const dohLookup = createDohLookup(NAVION_CORE_CONFIG.dns);
 const MAX_REDIRECTS = NAVION_CORE_CONFIG.fetch.maxRedirects;
 
 const CACHE = new Map();
@@ -680,6 +682,10 @@ function rawFetchInternal(targetUrl, options, redirectCount = 0) {
         agent: useAgent,
         timeout: timeoutMs,
       };
+
+      if (!proxy && NAVION_CORE_CONFIG.dns?.enabled) {
+        reqOptions.lookup = dohLookup;
+      }
 
       if (proxy) {
         reqOptions.agent = false;

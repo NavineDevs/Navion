@@ -37,6 +37,10 @@ export function createNavionCoreServer(options = {}) {
           auto: Boolean(config.upstreamProxy?.auto),
           hostRules: config.upstreamProxy?.hosts?.length || 0,
         },
+        dns: {
+          doh: Boolean(config.dns?.enabled),
+          endpoints: config.dns?.endpoints?.length || 0,
+        },
       }));
       return;
     }

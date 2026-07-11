@@ -1,6 +1,8 @@
 import { createUpstreamProxyConfig } from "../../internal/upstream-proxy.js";
+import { createDohConfig } from "../../internal/doh-resolver.js";
 
 export { createUpstreamProxyConfig };
+export { createDohConfig };
 export const NAVION_CORE_CONFIG = {
   prefix: "/nv/",
   apiEndpoint: "/api/fetch",
@@ -8,6 +10,7 @@ export const NAVION_CORE_CONFIG = {
   port: parseInt(process.env.PORT || "8080", 10),
   appOrigin: process.env.NAVION_APP_ORIGIN || "http://localhost:8090",
   upstreamProxy: createUpstreamProxyConfig(process.env),
+  dns: createDohConfig(process.env),
   fetch: {
     maxRedirects: 10,
     timeoutMs: 20000,

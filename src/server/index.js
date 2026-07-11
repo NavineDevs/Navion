@@ -29,5 +29,9 @@ export function getNavionCoreRuntime() {
     apiEndpoint: NAVION_CORE_CONFIG.apiEndpoint,
     host: NAVION_CORE_CONFIG.bindHost,
     port: NAVION_CORE_CONFIG.port,
+    dns: {
+      doh: Boolean(NAVION_CORE_CONFIG.dns?.enabled),
+      endpoints: NAVION_CORE_CONFIG.dns?.endpoints?.length || 0,
+    },
   };
 }
