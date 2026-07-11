@@ -1,5 +1,6 @@
 import https from "node:https";
 import http from "node:http";
+import net from "node:net";
 import zlib from "node:zlib";
 import fs from "node:fs";
 import path from "node:path";
@@ -16,10 +17,35 @@ import {
   shouldUseUpstreamProxy,
   isKnownBlockedHost,
 } from "./internal/upstream-proxy.js";
-import { createDohLookup } from "./internal/doh-resolver.js";
+import { createDohLookup, resolveHostname } from "./internal/doh-resolver.js";
 
 const PREFIX = NAVION_CORE_CONFIG.prefix;
 const dohLookup = createDohLookup(NAVION_CORE_CONFIG.dns);
+
+async function resolveHostAddresses(hostname) {
+  if (!NAVION_CORE_CONFIG.dns?.enabled || !hostname || net.isIP(hostname)) return [];
+  try {
+    const [v4, v6] = await Promise.all([
+      resolveHostname(hostname, NAVION_CORE_CONFIG.dns, 4),
+      resolveHostname(hostname, NAVION_CORE_CONFIG.dns, 6),
+    ]);
+    return [
+      ...v4.map((address) => ({ address, family: 4 })),
+      ...v6.map((address) => ({ address, family: 6 })),
+    ];
+  } catch {
+    return [];
+  }
+}
+
+function fixedAddressLookup(address, family) {
+  return (hostname, options, callback) => {
+    const cb = typeof options === "function" ? options : callback;
+    const opts = typeof options === "function" ? {} : options || {};
+    if (opts.all) cb(null, [{ address, family }]);
+    else cb(null, address, family);
+  };
+}
 const MAX_REDIRECTS = NAVION_CORE_CONFIG.fetch.maxRedirects;
 
 const CACHE = new Map();
@@ -439,7 +465,7 @@ function isUpstreamBlockedFetchError(err, hostname) {
 
 function upstreamBlockedMessage(hostname) {
   const host = String(hostname || "this site");
-  return `Could not reach ${host}. Your network may block this host. Set NAVION_UPSTREAM_PROXY to a local SOCKS5 or HTTP proxy (example: socks5://127.0.0.1:1080). Add NAVION_UPSTREAM_PROXY_AUTO=1 to probe common local proxy ports.`;
+  return `Could not reach ${host} right now. Navion already resolves this host over its built-in encrypted DNS and connects directly, but the network dropped every route. Please try again in a moment.`;
 }
 
 function redirectToErrorPage(res, targetUrl, details = {}) {
@@ -683,7 +709,9 @@ function rawFetchInternal(targetUrl, options, redirectCount = 0) {
         timeout: timeoutMs,
       };
 
-      if (!proxy && NAVION_CORE_CONFIG.dns?.enabled) {
+      if (!proxy && options.forceLookup) {
+        reqOptions.lookup = options.forceLookup;
+      } else if (!proxy && NAVION_CORE_CONFIG.dns?.enabled) {
         reqOptions.lookup = dohLookup;
       }
 
@@ -765,6 +793,20 @@ async function navionFetchWithRetry(targetUrl, options, retries = 1) {
         }
       }
       if (attempt >= retries || !isRecoverableSocketError(error)) break;
+    }
+  }
+  if (isRecoverableSocketError(lastError) && !options?.upstreamProxy && !options?.forceLookup) {
+    const addresses = await resolveHostAddresses(hostname);
+    for (const { address, family } of addresses) {
+      try {
+        return await rawFetch(targetUrl, {
+          ...options,
+          fresh: true,
+          forceLookup: fixedAddressLookup(address, family),
+        });
+      } catch (directError) {
+        lastError = directError;
+      }
     }
   }
   throw lastError || new Error("Fetch failed");

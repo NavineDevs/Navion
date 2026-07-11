@@ -126,10 +126,10 @@ test("asset fallback rejects bad css and script mime types", () => {
   ), false);
 });
 
-test("upstream blocked fetch errors produce actionable proxy guidance", () => {
+test("blocked fetch errors surface built-in direct-connection guidance", () => {
   const err = Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" });
   assert.equal(isUpstreamBlockedFetchError(err, "www.pornhub.com"), true);
   assert.equal(isUpstreamBlockedFetchError(err, "www.youtube.com"), false);
-  assert.match(upstreamBlockedMessage("hanime.tv"), /NAVION_UPSTREAM_PROXY/);
-  assert.match(upstreamBlockedMessage("hanime.tv"), /NAVION_UPSTREAM_PROXY_AUTO/);
+  assert.match(upstreamBlockedMessage("hanime.tv"), /hanime\.tv/);
+  assert.match(upstreamBlockedMessage("hanime.tv"), /built-in encrypted DNS/);
 });

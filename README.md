@@ -116,39 +116,18 @@ DoH is enabled by default. Environment variables:
 
 Check `/api/navion-status` for `dns.doh` after startup.
 
-## Upstream proxy for network-level (SNI/IP) blocking
+## Adult sites and blocked hosts (no external dependency)
 
-DoH handles DNS-based filtering. If a network blocks by SNI or IP after DNS resolves, route blocked hosts through a local VPN, Tor, or SOCKS5/HTTP proxy instead.
+Navion reaches adult sites and other DNS-filtered hosts on its own, with no VPN, Tor, or external proxy required. When a direct connection fails on a known-blocked host, Navion re-resolves the host over its built-in encrypted DNS (DoH) and retries the connection directly against every resolved IPv4 and IPv6 address before reporting an error. This keeps the whole stack zero-dependency.
 
-Set environment variables before starting Navion or Navion-App:
+An optional local proxy is still supported for networks that also block by SNI or raw IP, but it is never required for normal operation:
 
-```bash
-set NAVION_UPSTREAM_PROXY=socks5://127.0.0.1:1080
-set NAVION_UPSTREAM_PROXY_AUTO=1
-npm start
-```
-
-Supported proxy URLs:
-
-- `socks5://127.0.0.1:1080`
-- `http://127.0.0.1:7890`
-- `http://user:pass@127.0.0.1:8888`
-
-Environment variables:
-
-- `NAVION_UPSTREAM_PROXY` - SOCKS5 or HTTP proxy URL
+- `NAVION_UPSTREAM_PROXY` - optional SOCKS5 or HTTP proxy URL (e.g. `socks5://127.0.0.1:1080`)
 - `NAVION_UPSTREAM_PROXY_HOSTS` - comma-separated host rules (default: pornhub, hanime, and related adult CDNs)
 - `NAVION_UPSTREAM_PROXY_ALL=1` - route all upstream fetches through the proxy
-- `NAVION_UPSTREAM_PROXY_AUTO=1` - probe common local proxy ports (`1080`, `9050`, `7890`, `8080`, `8888`, `3128`) for blocked hosts
+- `NAVION_UPSTREAM_PROXY_AUTO=1` - probe common local proxy ports for blocked hosts
 
-Example with Tor:
-
-```bash
-set NAVION_UPSTREAM_PROXY=socks5://127.0.0.1:9050
-set NAVION_UPSTREAM_PROXY_HOSTS=*.pornhub.com,hanime.tv,*.hanime.tv
-```
-
-Check `/api/navion-status` for `upstreamProxy.enabled` after startup.
+Check `/api/navion-status` for `dns.doh` and `upstreamProxy.enabled` after startup.
 
 ## Branding / Credits
 
