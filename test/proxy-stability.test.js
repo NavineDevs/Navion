@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { rewriteHtml } from "../src/rewriters/html.js";
-import { rewriteJs } from "../src/rewriters/js.js";
+import { rewriteJs, rewriteMediaUrlLiterals } from "../src/rewriters/js.js";
 import { __navionTestInternals } from "../src/proxy.js";
 
 const {
@@ -93,6 +93,23 @@ test("js rewriter blocks site service workers and rewrites URL-bearing globals o
   assert.match(out, /self\.foo \+ window\.bar \+ globalThis\.baz/);
 });
 
+test("media url literals rewrite adult and youtube cdn strings", () => {
+  const input = 'var defs=[{"videoUrl":"https://pix-fl.phncdn.com/video.mp4"},{"videoUrl":"https:\\/\\/pix-fl.phncdn.com\\/video2.mp4"}];';
+  const out = rewriteMediaUrlLiterals(input, "https://www.pornhub.com/view_video.php?viewkey=test");
+  assert.match(out, /\/nv\//);
+  assert.doesNotMatch(out, /https:\/\/pix-fl\.phncdn\.com\/video\.mp4/);
+});
+
+test("inline html scripts rewrite embedded media urls", () => {
+  const out = rewriteHtml(
+    '<html><head></head><body><script>var mediaDefinitions=[{"videoUrl":"https://pix-fl.phncdn.com/video.mp4"}];</script></body></html>',
+    "https://www.pornhub.com/view_video.php?viewkey=test",
+    { injectRuntime: false, rewriteMode: "full" }
+  );
+  assert.match(out, /\/nv\//);
+  assert.doesNotMatch(out, /https:\/\/pix-fl\.phncdn\.com\/video\.mp4/);
+});
+
 test("youtube html receives normal runtime and youtube helper", () => {
   const out = rewriteHtml("<html><head></head><body></body></html>", "https://www.youtube.com/", {
     injectRuntime: true,
@@ -102,7 +119,7 @@ test("youtube html receives normal runtime and youtube helper", () => {
   });
 
   assert.match(out, /window\.__navionRuntimeLoaded/);
-  assert.match(out, /\/nv\.client\.js\?v=1\.0\.15/);
+  assert.match(out, /\/nv\.client\.js\?v=1\.0\.17/);
   assert.match(out, /HTMLScriptElement&&HTMLScriptElement\.prototype/);
   assert.match(out, /HTMLLinkElement&&HTMLLinkElement\.prototype/);
   assert.match(out, /yt-searchbox/);

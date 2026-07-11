@@ -105,6 +105,30 @@ async function testSite(site) {
       } else {
         out.checks.push({ check: "phncdn-asset", ...pass({ status: assetRes.status }) });
       }
+
+      const videoLink = text.match(/\/nv\/[^"']+view_video\.php[^"']*/i);
+      if (!videoLink) {
+        out.checks.push({ check: "ph-video-link", ...fail("no proxied video link on home page") });
+      } else {
+        const videoPath = videoLink[0];
+        const videoTarget = `https://www.pornhub.com${videoPath.replace(/^\/nv\/[^/]+/, "")}`;
+        const videoPage = await fetchProxied(videoTarget);
+        if (videoPage.text.includes("mediaDefinitions")) {
+          const block = videoPage.text.match(/mediaDefinitions[\s\S]{0,20000}/);
+          const sample = block ? block[0] : videoPage.text;
+          const hasRawStream = /videoUrl["'\s:]+\s*["']https:\/\/[^"']*phncdn/i.test(sample);
+          const hasProxiedStream = /videoUrl["'\s:]+\s*["']\/nv\//i.test(sample);
+          if (hasRawStream) {
+            out.checks.push({ check: "ph-inline-media", ...fail("mediaDefinitions still contains raw phncdn stream urls") });
+          } else if (hasProxiedStream) {
+            out.checks.push({ check: "ph-inline-media", ...pass() });
+          } else {
+            out.checks.push({ check: "ph-inline-media", ...pass({ note: "no stream urls in mediaDefinitions sample" }) });
+          }
+        } else {
+          out.checks.push({ check: "ph-inline-media", ...pass({ note: "mediaDefinitions not present" }) });
+        }
+      }
     }
 
     if (site.name === "navianime") {

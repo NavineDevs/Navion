@@ -160,12 +160,6 @@ function createRouteHelpers(config) {
     ) {
       return new URL(pathValue + (search || ""), DEFAULT_DUCK_AI_ORIGIN).href;
     }
-    if (pathValue.startsWith("/_next/")) {
-      return new URL(pathValue + (search || ""), DEFAULT_DUCKDUCKGO_ORIGIN).href;
-    }
-    if (pathValue.startsWith("/dist/")) {
-      return new URL(pathValue + (search || ""), DEFAULT_DUCKDUCKGO_ORIGIN).href;
-    }
     return null;
   }
 

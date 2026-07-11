@@ -557,7 +557,10 @@ function shouldBypassJsRewrite(resourceUrl) {
       host === "googleapis.com" ||
       host.endsWith(".googleapis.com");
 
-    if (u.pathname.startsWith("/_next/static/")) return true;
+    if (u.pathname.startsWith("/_next/static/")) {
+      if (host.endsWith(".vercel.app")) return false;
+      return true;
+    }
     if (isYouTubeFamily) return true;
     if (isGoogleIdentityFamily) return true;
     return false;
@@ -1443,6 +1446,17 @@ export async function handleProxy(req, res, url) {
       fwdHeaders["x-forwarded-for"] = clientIp;
       fwdHeaders["x-real-ip"] = clientIp;
     }
+  } else if (
+    isStreamableMediaTarget(targetUrl) ||
+    isAdultContentHost(host) ||
+    host.endsWith(".vercel.app")
+  ) {
+    if (req.headers.range) fwdHeaders.range = req.headers.range;
+    if (req.headers["if-range"]) fwdHeaders["if-range"] = req.headers["if-range"];
+    if (isAdultContentHost(host)) {
+      fwdHeaders.referer = fwdHeaders.referer || `${target.origin}/`;
+      fwdHeaders.accept = fwdHeaders.accept || "*/*";
+    }
   }
 
   if (isYouTubeApi || isYouTubeRelatedHost(host)) {
@@ -1583,9 +1597,17 @@ export async function handleProxy(req, res, url) {
       return;
     }
 
-    if (isStreamableMediaTarget(finalUrl || targetUrl, ct) && !enc) {
+    if (isStreamableMediaTarget(finalUrl || targetUrl, ct)) {
+      if (!enc) {
+        res.writeHead(response.status, outHeaders);
+        response.body.pipe(res);
+        return;
+      }
+      const mediaBuf = await collectStream(decompressStream(response.body, enc));
+      delete outHeaders["content-length"];
+      delete outHeaders["content-encoding"];
       res.writeHead(response.status, outHeaders);
-      response.body.pipe(res);
+      res.end(mediaBuf);
       return;
     }
 

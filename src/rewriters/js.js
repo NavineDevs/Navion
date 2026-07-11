@@ -1,5 +1,21 @@
 import { rewriteUrl } from "./url.js";
 
+const PROXY_LITERAL_HOST_RE =
+  /(?:googlevideo|gstatic|ytimg|ggpht|googleapis|doubleclick|youtube|phncdn|phprcdn|pornhub|trafficjunky|sb-cd|streamsb|doodcdn|doodstream|nhplayer|uncensoredhentai|vercel\.app|xvideos|xhamster|eporner|redtube|spankbang|xnxx|hstream\.moe)/i;
+
+function shouldRewriteLiteral(value) {
+  if (!value || value.includes("${")) return false;
+  const raw = String(value).trim();
+  if (!raw) return false;
+  try {
+    const normalized = raw.startsWith("//") ? `https:${raw}` : raw;
+    if (!/^https?:\/\//i.test(normalized)) return PROXY_LITERAL_HOST_RE.test(raw);
+    return PROXY_LITERAL_HOST_RE.test(new URL(normalized).hostname);
+  } catch {
+    return PROXY_LITERAL_HOST_RE.test(raw);
+  }
+}
+
 function rewriteScriptUrlLiteral(url, base) {
   if (!url) return url;
   const value = String(url).trim();
@@ -71,19 +87,33 @@ export function rewriteJs(js, base) {
     (m, pre, value) => `${pre}${rewriteScriptUrlLiteral(value, base)}`
   );
 
-  return rewriteCdnUrlLiterals(out, base);
+  return rewriteMediaUrlLiterals(out, base);
 }
 
-export function rewriteCdnUrlLiterals(js, base) {
+export function rewriteMediaUrlLiterals(js, base) {
   if (!js) return js;
   let out = js;
   out = out.replace(
-    /(["'`])(https?:\/\/(?:[\w-]+\.)*(?:googlevideo\.com|gstatic\.com|ytimg\.com|ggpht\.com|googleapis\.com|doubleclick\.net|youtube\.com)[^"'`]*)\1/gi,
-    (m, q, value) => `${q}${rewriteScriptUrlLiteral(value, base)}${q}`
+    /(["'`])(https?:\\\/\\\/[^"'`]+)\1/g,
+    (m, q, value) => {
+      const normalized = value.replace(/\\\//g, "/");
+      if (!shouldRewriteLiteral(normalized)) return m;
+      const rewritten = rewriteScriptUrlLiteral(normalized, base);
+      if (rewritten === normalized) return m;
+      return `${q}${rewritten.replace(/\//g, "\\/")}${q}`;
+    }
   );
   out = out.replace(
-    /(["'`])(\/\/(?:[\w-]+\.)*(?:googlevideo\.com|gstatic\.com|ytimg\.com|ggpht\.com|googleapis\.com|doubleclick\.net|youtube\.com)[^"'`]*)\1/gi,
-    (m, q, value) => `${q}${rewriteScriptUrlLiteral(value, base)}${q}`
+    /(["'`])((?:https?:)?\/\/[^"'`\s]+)\1/g,
+    (m, q, value) => {
+      if (!shouldRewriteLiteral(value)) return m;
+      const rewritten = rewriteScriptUrlLiteral(value, base);
+      return rewritten === value ? m : `${q}${rewritten}${q}`;
+    }
   );
   return out;
+}
+
+export function rewriteCdnUrlLiterals(js, base) {
+  return rewriteMediaUrlLiterals(js, base);
 }

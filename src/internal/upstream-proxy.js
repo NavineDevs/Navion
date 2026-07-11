@@ -36,6 +36,14 @@ const DEFAULT_BLOCKED_HOSTS = [
   "*.spankbang.com",
   "xnxx.com",
   "*.xnxx.com",
+  "uncensoredhentai.xxx",
+  "*.uncensoredhentai.xxx",
+  "sb-cd.com",
+  "*.sb-cd.com",
+  "doodcdn.co",
+  "*.doodcdn.co",
+  "nhplayer.com",
+  "*.nhplayer.com",
 ];
 
 let cachedAutoProxy = null;

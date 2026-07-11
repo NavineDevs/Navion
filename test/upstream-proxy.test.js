@@ -17,7 +17,7 @@ test("upstream proxy host rules match blocked adult domains", () => {
   assert.equal(shouldUseUpstreamProxy("hanime.tv", config), true);
   assert.equal(shouldUseUpstreamProxy("cdn.hanime.tv", config), true);
   assert.equal(shouldUseUpstreamProxy("www.youtube.com", config), false);
-  assert.equal(shouldUseUpstreamProxy("uncensoredhentai.xxx", config), false);
+  assert.equal(shouldUseUpstreamProxy("uncensoredhentai.xxx", config), true);
 });
 
 test("upstream proxy all mode routes every host", () => {

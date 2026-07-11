@@ -161,12 +161,19 @@ function findTagEnd(html, from) {
   return -1;
 }
 
-const RUNTIME_VERSION = "1.0.15";
+const RUNTIME_VERSION = "1.0.17";
+
+const PROXY_MEDIA_HOST_RE =
+  /(?:googlevideo|gstatic|ytimg|ggpht|googleapis|doubleclick|youtube|phncdn|phprcdn|pornhub|trafficjunky|sb-cd|streamsb|doodcdn|doodstream|nhplayer|uncensoredhentai|vercel\.app|xvideos|xhamster|eporner|redtube|spankbang|xnxx|hstream\.moe)/i;
+
+function needsProxyMediaHost(hostname) {
+  return PROXY_MEDIA_HOST_RE.test(String(hostname || "").toLowerCase());
+}
 
 const NETWORK_PATCH = (base) =>
   `<script>!function(){var b=${JSON.stringify(base)};` +
   `function n(u){try{return btoa(encodeURIComponent(u)).replace(/\\+/g,"-").replace(/\\//g,"_").replace(/=/g,"")}catch(e){return u}}` +
-  `function x(h){h=String(h||"").toLowerCase();return h==="googlevideo.com"||h.endsWith(".googlevideo.com")||h.endsWith(".gstatic.com")||h.endsWith(".ytimg.com")||h.endsWith(".ggpht.com")||h.endsWith(".googleapis.com")||h.endsWith(".doubleclick.net")||h.indexOf("youtube")!==-1}` +
+  `function x(h){h=String(h||"").toLowerCase();return (${PROXY_MEDIA_HOST_RE.toString()}).test(h)}` +
   `function p(u){try{var r=new URL(u,b);if(typeof location!=="undefined"&&r.origin===location.origin&&r.pathname.indexOf("/nv/")===0)return r.pathname+r.search+r.hash;var o=new URL(b);if(r.origin===o.origin)return"/nv/"+n(r.origin+"/")+r.pathname+r.search+r.hash;return"/nv/"+n(r.href)}catch(e){return u}}` +
   `function u(v){try{if(v==null)return v;var t=String(v);if(!t||/^(javascript:|data:|blob:|#|\\/nv\\/|\\/api\\/|\\/app$|\\/nav\\/|\\/index\\.html|\\/nv\\.)/i.test(t))return v;var r=new URL(t,b);if(x(r.hostname))return p(r.href);if(r.origin===location.origin&&!/^\\/(?:nv\\/|api\\/|app$|nav\\/|index\\.html|nv\\.)/.test(r.pathname))return p((new URL(r.pathname+r.search+r.hash,b)).href);return p(r.href)}catch(e){return v}}` +
   `function k(v){try{if(v==null)return v;if(typeof v==="string"){if(/^\\/nv\\//i.test(v))return v;return u(v)}if(v&&typeof v.url==="string"){if(/^\\/nv\\//i.test(v.url))return v;var w=u(v.url);return w!==v.url?new Request(w,v):v}return v}catch(e){return v}}` +
@@ -247,7 +254,7 @@ const INJECT = (base, mode, youtubeHelper) =>
   `decode:function(e){try{var p=e+"=".repeat((4-e.length%4)%4);return decodeURIComponent(atob(p.replace(/-/g,"+").replace(/_/g,"/")))}catch(e){return e}},` +
   `rewrite:function(u,b){if(!u)return u;var t=String(u).trim();` +
   `if(/^(javascript:|data:|blob:|#|mailto:|tel:|about:|\\/nv\\/)/i.test(t))return u;` +
-  `try{var e0=new URL(t,b||location.href);var h0=e0.hostname.toLowerCase();if((e0.protocol==="http:"||e0.protocol==="https:")&&e0.origin!==location.origin&&(h0==="googlevideo.com"||h0.endsWith(".googlevideo.com")||h0.endsWith(".gstatic.com")||h0.endsWith(".ytimg.com")||h0.endsWith(".ggpht.com")||h0.endsWith(".googleapis.com")||h0.endsWith(".doubleclick.net")||h0.indexOf("youtube")!==-1))return"/nv/"+c.encode(e0.href)}catch(e){}` +
+  `try{var e0=new URL(t,b||location.href);var h0=e0.hostname.toLowerCase();if((e0.protocol==="http:"||e0.protocol==="https:")&&e0.origin!==location.origin&&(${PROXY_MEDIA_HOST_RE.toString()}).test(h0))return"/nv/"+c.encode(e0.href)}catch(e){}` +
   `try{var e=new URL(t,location.href);if(e.origin===location.origin){if(e.pathname.startsWith("/nv/")||e.pathname==="/api/fetch"||e.pathname==="/api/navion-status"||e.pathname==="/favicon.ico"||e.pathname==="/generate_204"||e.pathname==="/nv.sw.js"||e.pathname==="/nv.client.js"||e.pathname==="/nv.register.js"||e.pathname==="/nav/home"||e.pathname==="/nav/error"||e.pathname==="/app"||e.pathname==="/index.html")return u;t=e.pathname+e.search+e.hash;}}catch(e){}` +
   `try{var r=b?new URL(t,b):new URL(t);if(b){try{var bb=new URL(b);if(r.origin===bb.origin)return"/nv/"+c.encode(r.origin+"/")+r.pathname+r.search+r.hash;}catch(e){}}return"/nv/"+c.encode(r.href)}catch(e){return u}}};` +
   `try{if(window.top!==window&&document.requestStorageAccessFor)Object.defineProperty(document,"requestStorageAccessFor",{configurable:true,value:function(){return Promise.resolve()}})}catch(e){}` +
@@ -273,16 +280,21 @@ export function rewriteHtml(html, base, options = {}) {
   let inScript = false;
   let inStyle = false;
   let styleBuf = "";
+  let scriptBuf = "";
   let injected = false;
 
   while (i < html.length) {
     if (html.charCodeAt(i) !== 60) {
       const next = html.indexOf("<", i);
       if (next === -1) {
-        (inStyle ? (styleBuf += html.slice(i)) : out.push(html.slice(i)));
+        if (inStyle) styleBuf += html.slice(i);
+        else if (inScript) scriptBuf += html.slice(i);
+        else out.push(html.slice(i));
         break;
       }
-      inStyle ? (styleBuf += html.slice(i, next)) : out.push(html.slice(i, next));
+      if (inStyle) styleBuf += html.slice(i, next);
+      else if (inScript) scriptBuf += html.slice(i, next);
+      else out.push(html.slice(i, next));
       i = next;
       continue;
     }
@@ -312,8 +324,14 @@ export function rewriteHtml(html, base, options = {}) {
     const isClose = nm?.[1] === "/";
 
     if (inScript) {
-      if (isClose && tag === "script") { inScript = false; out.push("</script>"); }
-      else out.push(html.slice(i, tagEnd + 1));
+      if (isClose && tag === "script") {
+        inScript = false;
+        out.push(rewriteJs(scriptBuf, base));
+        scriptBuf = "";
+        out.push("</script>");
+      } else {
+        scriptBuf += html.slice(i, tagEnd + 1);
+      }
       i = tagEnd + 1;
       continue;
     }
