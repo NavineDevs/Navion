@@ -5,7 +5,7 @@ import zlib from "node:zlib";
 import fs from "node:fs";
 import path from "node:path";
 import { URL } from "node:url";
-import { decode, encode, rewriteUrl } from "./rewriters/url.js";
+import { decode, encode, rewriteUrl, resolveNavionTarget } from "./rewriters/url.js";
 import { rewriteHtml } from "./rewriters/html.js";
 import { rewriteJs, rewriteCdnUrlLiterals } from "./rewriters/js.js";
 import { rewriteCss } from "./rewriters/css.js";
@@ -179,6 +179,8 @@ function isAdultContentHost(hostname) {
   if (host === "hstream.moe" || host.endsWith(".hstream.moe")) return true;
   if (host.endsWith(".sb-cd.com") || host.endsWith(".streamsb.net")) return true;
   if (host.endsWith(".doodstream.com") || host.endsWith(".doodcdn.co")) return true;
+  if (host.endsWith(".htstreaming.com") || host.endsWith(".1hanime.com")) return true;
+  if (host.endsWith(".hanime.com") && !host.endsWith(".hanime.tv")) return true;
   return false;
 }
 
@@ -307,21 +309,48 @@ function rewriteJsonText(source, baseUrl) {
   }
 }
 
+function decodeNhPlayerVid(resourceUrl) {
+  try {
+    const u = new URL(resourceUrl);
+    const token = u.searchParams.get("vid") || "";
+    if (!token) return "";
+    const padded = token + "=".repeat((4 - (token.length % 4)) % 4);
+    const decoded = Buffer.from(padded.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8");
+    const candidate = decoded.split("|")[0];
+    return /^https?:\/\//i.test(candidate) ? candidate : "";
+  } catch {
+    return "";
+  }
+}
+
+function buildNhPlayerFallback(resourceUrl) {
+  const mediaUrl = decodeNhPlayerVid(resourceUrl);
+  if (!mediaUrl) return "";
+  const proxied = rewriteUrl(mediaUrl, resourceUrl);
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{margin:0;background:#000;height:100%}video{width:100%;height:100%;background:#000}</style></head><body><video controls autoplay playsinline src="${proxied.replace(/"/g, "&quot;")}"></video></body></html>`;
+}
+
 function sanitizeNhPlayerHtml(source, resourceUrl) {
   try {
     const u = new URL(resourceUrl);
     const host = u.hostname.toLowerCase();
     if (host !== "nhplayer.com" && !host.endsWith(".nhplayer.com")) return source;
+    const mediaUrl = decodeNhPlayerVid(resourceUrl);
+    const proxiedMedia = mediaUrl ? rewriteUrl(mediaUrl, resourceUrl) : "";
+    const stripped = String(source || "").replace(/<script[\s\S]*?<\/script>/gi, "").trim();
+    if (u.pathname.endsWith("/player.php") && proxiedMedia && stripped.length < 400) {
+      return buildNhPlayerFallback(resourceUrl);
+    }
+    if (u.pathname.startsWith("/v/")) {
+      const autoLoader =
+        `<script id="nv-nh-auto">document.addEventListener("DOMContentLoaded",function(){try{var li=document.querySelector(".servers ul li[data-id]");var frame=document.querySelector(".frame iframe,iframe");function load(){if(!li||!frame)return;var src=li.getAttribute("data-id");if(src)frame.setAttribute("src",src);}load();var play=document.querySelector(".frame .play");if(play)play.addEventListener("click",load,true);document.querySelectorAll(".servers ul li").forEach(function(node){node.addEventListener("click",load,true);});}catch(e){}},true);</script>`;
+      if (!String(source).includes("nv-nh-auto")) {
+        return String(source).replace(/<\/body>/i, `${autoLoader}</body>`);
+      }
+      return source;
+    }
     if (!u.pathname.endsWith("/player.php")) return source;
-    let mediaUrl = "";
-    try {
-      const token = u.searchParams.get("vid") || "";
-      const padded = token + "=".repeat((4 - (token.length % 4)) % 4);
-      const decoded = Buffer.from(padded.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8");
-      const candidate = decoded.split("|")[0];
-      if (/^https?:\/\//i.test(candidate)) mediaUrl = rewriteUrl(candidate, resourceUrl);
-    } catch {}
-    const seedResult = mediaUrl ? `window._pC=window._pC||{};window._pC.result={url:${JSON.stringify(mediaUrl)}};window._pC.error=null;` : "";
+    const seedResult = proxiedMedia ? `window._pC=window._pC||{};window._pC.result={url:${JSON.stringify(proxiedMedia)}};window._pC.error=null;` : "";
     return String(source || "")
       .replace(/_f\.push\(/g, "void(")
       .replace(/typeof\s+v\.domResult\s*===\s*(['"])function\1/g, "false")
@@ -335,19 +364,7 @@ function sanitizeNhPlayerHtml(source, resourceUrl) {
 }
 
 function decodeProxyPathTarget(pathname, search = "") {
-  if (!pathname || !pathname.startsWith(PREFIX)) return null;
-  const rawPath = pathname.slice(PREFIX.length);
-  if (!rawPath) return null;
-  const slash = rawPath.indexOf("/");
-  let rawToken = slash < 0 ? rawPath : rawPath.slice(0, slash);
-  const suffix = slash < 0 ? "" : rawPath.slice(slash);
-  try { rawToken = decodeURIComponent(rawToken); } catch {}
-  const decoded = /^https?:\/\//i.test(rawToken) ? rawToken : decode(rawToken);
-  if (!/^https?:\/\//i.test(decoded)) return null;
-  const target = new URL(decoded);
-  if (suffix) target.pathname = target.pathname.replace(/\/?$/, "") + decodeURI(suffix);
-  if (search && !target.search) target.search = search;
-  return target.href;
+  return resolveNavionTarget(pathname, search);
 }
 
 function isAssetRequest(req, targetUrl, contentType = "") {

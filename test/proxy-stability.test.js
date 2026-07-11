@@ -119,7 +119,7 @@ test("youtube html receives normal runtime and youtube helper", () => {
   });
 
   assert.match(out, /window\.__navionRuntimeLoaded/);
-  assert.match(out, /\/nv\.client\.js\?v=1\.0\.17/);
+  assert.match(out, /\/nv\.client\.js\?v=1\.0\.19/);
   assert.match(out, /HTMLScriptElement&&HTMLScriptElement\.prototype/);
   assert.match(out, /HTMLLinkElement&&HTMLLinkElement\.prototype/);
   assert.match(out, /yt-searchbox/);

@@ -32,23 +32,68 @@ export function decode(encoded) {
 
 const PATH_MARKERS = ["dist/", "_next/", "country.json", "duckchat/", "static/"];
 
+function tryDecodeNavionToken(rawToken) {
+  let token = rawToken;
+  try { token = decodeURIComponent(rawToken); } catch {}
+  try {
+    const decoded = /^https?:\/\//i.test(token) ? token : decode(token);
+    if (decoded && /^https?:\/\//i.test(decoded)) return decoded;
+  } catch {}
+  return null;
+}
+
+function isExactNavionToken(rawToken, decoded) {
+  if (!decoded) return false;
+  try {
+    return encode(decoded) === rawToken;
+  } catch {
+    return false;
+  }
+}
+
+function splitNavionRawPath(rawPath) {
+  const slash = rawPath.indexOf("/");
+  if (slash >= 0) {
+    return { rawToken: rawPath.slice(0, slash), suffix: rawPath.slice(slash) };
+  }
+  for (const marker of PATH_MARKERS) {
+    const index = rawPath.indexOf(marker);
+    if (index > 0) {
+      return { rawToken: rawPath.slice(0, index), suffix: `/${rawPath.slice(index)}` };
+    }
+  }
+  const full = tryDecodeNavionToken(rawPath);
+  if (full && isExactNavionToken(rawPath, full)) {
+    return { rawToken: rawPath, suffix: "" };
+  }
+  for (let i = rawPath.length - 1; i >= 12; i--) {
+    const candidate = rawPath.slice(0, i);
+    const decoded = tryDecodeNavionToken(candidate);
+    if (!decoded || !decoded.endsWith("/")) continue;
+    if (!isExactNavionToken(candidate, decoded)) continue;
+    const suffix = rawPath.slice(i);
+    if (!suffix) continue;
+    return { rawToken: candidate, suffix };
+  }
+  return { rawToken: rawPath, suffix: "" };
+}
+
+export function applyNavionSuffix(target, suffix) {
+  if (!suffix) return target;
+  let piece = suffix;
+  if (!piece.startsWith("/")) piece = `/${piece}`;
+  const suffixUrl = new URL(piece, "https://navion.invalid");
+  target.pathname = target.pathname.replace(/\/?$/, "") + suffixUrl.pathname;
+  if (suffixUrl.search) target.search = suffixUrl.search;
+  if (suffixUrl.hash) target.hash = suffixUrl.hash;
+  return target;
+}
+
 export function parseNavionPath(pathname) {
   if (!pathname || !pathname.startsWith(PREFIX)) return null;
   const rawPath = pathname.slice(PREFIX.length);
   if (!rawPath) return null;
-  let slash = rawPath.indexOf("/");
-  let rawToken = slash === -1 ? rawPath : rawPath.slice(0, slash);
-  let suffix = slash === -1 ? "" : rawPath.slice(slash);
-  if (!suffix) {
-    for (const marker of PATH_MARKERS) {
-      const index = rawPath.indexOf(marker);
-      if (index > 0) {
-        rawToken = rawPath.slice(0, index);
-        suffix = `/${rawPath.slice(index)}`;
-        break;
-      }
-    }
-  }
+  const { rawToken, suffix } = splitNavionRawPath(rawPath);
   let token = rawToken;
   try { token = decodeURIComponent(rawToken); } catch {}
   let decoded = null;
@@ -57,6 +102,15 @@ export function parseNavionPath(pathname) {
   } catch {}
   if (!decoded || !/^https?:\/\//i.test(decoded)) return null;
   return { rawToken, suffix, decoded };
+}
+
+export function resolveNavionTarget(pathname, search = "", hash = "") {
+  const parsed = parseNavionPath(pathname);
+  if (!parsed) return null;
+  const target = applyNavionSuffix(new URL(parsed.decoded), parsed.suffix);
+  if (search && !target.search) target.search = search;
+  if (hash) target.hash = hash;
+  return target.href;
 }
 
 export function decodeNavionToken(pathname) {

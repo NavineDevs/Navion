@@ -2,7 +2,7 @@ import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import { handleProxy } from "../proxy.js";
-import { decode, encode } from "../rewriters/url.js";
+import { decode, encode, resolveNavionTarget } from "../rewriters/url.js";
 import { NAVION_APP_SERVER_DEFAULTS } from "./config/app-server.config.js";
 
 const MIMES = {
@@ -87,32 +87,7 @@ function createRouteHelpers(config) {
   }
 
   function resolveTargetFromNavionPath(pathname, search) {
-    if (!pathname || !pathname.startsWith(NAVION_PREFIX)) return null;
-    const rawPath = pathname.slice(NAVION_PREFIX.length);
-    if (!rawPath) return null;
-    const slash = rawPath.indexOf("/");
-    let rawToken = slash === -1 ? rawPath : rawPath.slice(0, slash);
-    let suffix = slash === -1 ? "" : rawPath.slice(slash);
-    if (!suffix) {
-      const markers = ["dist/", "_next/", "country.json", "duckchat/", "static/"];
-      for (const marker of markers) {
-        const index = rawPath.indexOf(marker);
-        if (index > 0) {
-          rawToken = rawPath.slice(0, index);
-          suffix = `/${rawPath.slice(index)}`;
-          break;
-        }
-      }
-    }
-    const token = decodeURIComponent(rawToken);
-    const base = decodeNavionValue(token);
-    if (!base) return null;
-    const target = new URL(base);
-    if (suffix) {
-      target.pathname = target.pathname.replace(/\/?$/, "") + decodeURI(suffix);
-    }
-    if (search) target.search = search;
-    return target.href;
+    return resolveNavionTarget(pathname, search || "");
   }
 
   function resolveRelativeTargetFromNavionPath(pathname, search, baseTarget) {

@@ -1,7 +1,7 @@
 import { rewriteUrl } from "./url.js";
 
 const PROXY_LITERAL_HOST_RE =
-  /(?:googlevideo|gstatic|ytimg|ggpht|googleapis|doubleclick|youtube|phncdn|phprcdn|pornhub|trafficjunky|sb-cd|streamsb|doodcdn|doodstream|nhplayer|uncensoredhentai|vercel\.app|xvideos|xhamster|eporner|redtube|spankbang|xnxx|hstream\.moe)/i;
+  /(?:googlevideo|gstatic|ytimg|ggpht|googleapis|doubleclick|youtube|phncdn|phprcdn|pornhub|trafficjunky|sb-cd|streamsb|doodcdn|doodstream|nhplayer|uncensoredhentai|vercel\.app|xvideos|xhamster|eporner|redtube|spankbang|xnxx|hstream\.moe|htstreaming|1hanime|hanime\.com)/i;
 
 function shouldRewriteLiteral(value) {
   if (!value || value.includes("${")) return false;

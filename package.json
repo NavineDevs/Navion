@@ -1,6 +1,6 @@
 {
   "name": "navion",
-  "version": "1.0.17",
+  "version": "1.0.19",
   "description": "Zero-dependency web proxy engine with URL, HTML, CSS, and JS rewriting and built-in DNS-over-HTTPS resolution",
   "repository": {
     "type": "git",
@@ -49,6 +49,15 @@
   "license": "MIT",
   "engines": {
     "node": ">=18.0.0"
+  },
+  "scripts": {
+    "test": "node --test test/",
+    "test:sites": "node scripts/proxy-site-test.mjs",
+    "test:features": "node scripts/feature-test.mjs",
+    "test:browser": "node scripts/browser-test.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.61.1"
   },
   "dependencies": {}
 }
