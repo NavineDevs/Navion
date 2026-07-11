@@ -15,12 +15,12 @@
     ".": "./src/server/index.js",
     "./server": "./src/server/create-server.js",
     "./app": "./src/server/create-app-server.js",
-    "./proxy": "./src/server/proxy.js",
+    "./proxy": "./src/proxy.js",
     "./config": "./src/server/config/navion.config.js",
-    "./rewriters/url": "./src/server/rewriters/url.js",
-    "./rewriters/html": "./src/server/rewriters/html.js",
-    "./rewriters/css": "./src/server/rewriters/css.js",
-    "./rewriters/js": "./src/server/rewriters/js.js",
+    "./rewriters/url": "./src/rewriters/url.js",
+    "./rewriters/html": "./src/rewriters/html.js",
+    "./rewriters/css": "./src/rewriters/css.js",
+    "./rewriters/js": "./src/rewriters/js.js",
     "./package.json": "./package.json"
   },
   "bin": {
