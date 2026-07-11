@@ -35,22 +35,6 @@
   "scripts": {
     "start": "node server.js",
     "check": "node --check server.js && node --check src/server/index.js && node --check src/server/create-app-server.js && node --check src/proxy.js && node --check src/internal/doh-resolver.js",
-    "test": "node --test"
-  },
-  "keywords": [
-    "proxy",
-    "web-proxy",
-    "navion",
-    "proxy-core",
-    "proxy-engine",
-    "zero-dependencies"
-  ],
-  "author": "Navine",
-  "license": "MIT",
-  "engines": {
-    "node": ">=18.0.0"
-  },
-  "scripts": {
     "test": "node --test test/",
     "test:sites": "node scripts/proxy-site-test.mjs",
     "test:features": "node scripts/feature-test.mjs",

@@ -3,6 +3,14 @@ import { encode } from "../src/rewriters/url.js";
 
 const BASE = process.env.NAVION_TEST_BASE || "http://localhost:8090";
 
+async function fetchProxiedHomeVideoPath() {
+  const api = `${BASE}/api/fetch?url=${encodeURIComponent(encode("https://www.pornhub.com/"))}`;
+  const res = await fetch(api, { headers: { accept: "text/html" } });
+  const text = await res.text();
+  const match = text.match(/\/nv\/[^"']+view_video\.php\?viewkey=[^"']+/i);
+  return match ? match[0] : null;
+}
+
 const browser = await chromium.launch({ headless: true });
 const context = await browser.newContext({ viewport: { width: 1400, height: 900 } });
 const results = [];
@@ -37,15 +45,12 @@ await check("shell-url-bar", async (page) => {
 });
 
 await check("pornhub-video", async (page) => {
-  const home = `/nv/${encode("https://www.pornhub.com/")}`;
-  await page.goto(`${BASE}/app?open=${encodeURIComponent(home)}`, { waitUntil: "domcontentloaded", timeout: 30000 });
-  await page.waitForTimeout(10000);
-  const frame = page.frameLocator("#nvFrame");
-  const href = await frame.locator('a[href*="view_video"]').first().getAttribute("href", { timeout: 20000 });
-  if (!href) throw new Error("no video link");
-  const open = href.startsWith("/") ? href : `/nv/${encode(href)}`;
-  await page.goto(`${BASE}/app?open=${encodeURIComponent(open)}`, { waitUntil: "domcontentloaded", timeout: 30000 });
+  const videoPath = await fetchProxiedHomeVideoPath();
+  if (!videoPath) throw new Error("no proxied video link from home page");
+  await page.goto(`${BASE}/app?open=${encodeURIComponent(videoPath)}`, { waitUntil: "domcontentloaded", timeout: 30000 });
+  await page.waitForSelector("#nvUrl", { timeout: 30000 });
   await page.waitForTimeout(12000);
+  const frame = page.frameLocator("#nvFrame");
   const bar = await page.inputValue("#nvUrl");
   const hasPlayer = await frame.locator("#player, .mgp_videoWrapper, video, #videoShow, #playerContainer, .mgp_player").count();
   const body = await frame.locator("body").innerText({ timeout: 8000 }).catch(() => "");
