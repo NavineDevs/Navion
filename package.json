@@ -1,6 +1,6 @@
 {
   "name": "navion",
-  "version": "1.0.19",
+  "version": "1.0.20",
   "description": "Zero-dependency web proxy engine with URL, HTML, CSS, and JS rewriting and built-in DNS-over-HTTPS resolution",
   "repository": {
     "type": "git",

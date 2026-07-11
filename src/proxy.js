@@ -1226,7 +1226,8 @@ function rewriteLocationHeader(locationValue, baseUrl) {
     const absolute = new URL(locationValue, baseUrl).href;
     const protocol = new URL(absolute).protocol;
     if (protocol !== "http:" && protocol !== "https:") return locationValue;
-    return `${PREFIX}${encode(absolute)}`;
+    const rewritten = rewriteUrl(absolute, baseUrl);
+    return rewritten || `${PREFIX}${encode(absolute)}`;
   } catch {
     return locationValue;
   }

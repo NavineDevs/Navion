@@ -35,7 +35,7 @@ test("proxied response headers strip frame and CSP policy", () => {
 test("location headers rewrite absolute and relative redirects", () => {
   assert.equal(
     rewriteLocationHeader("/next?a=1", "https://example.com/start"),
-    "/nv/aHR0cHMlM0ElMkYlMkZleGFtcGxlLmNvbSUyRm5leHQlM0ZhJTNEMQ"
+    "/nv/aHR0cHMlM0ElMkYlMkZleGFtcGxlLmNvbSUyRg/next?a=1"
   );
   assert.equal(
     rewriteLocationHeader("https://cdn.example/video.m3u8", "https://example.com/start"),
@@ -119,7 +119,7 @@ test("youtube html receives normal runtime and youtube helper", () => {
   });
 
   assert.match(out, /window\.__navionRuntimeLoaded/);
-  assert.match(out, /\/nv\.client\.js\?v=1\.0\.19/);
+  assert.match(out, /\/nv\.client\.js\?v=1\.0\.20/);
   assert.match(out, /HTMLScriptElement&&HTMLScriptElement\.prototype/);
   assert.match(out, /HTMLLinkElement&&HTMLLinkElement\.prototype/);
   assert.match(out, /yt-searchbox/);
