@@ -161,7 +161,7 @@ function findTagEnd(html, from) {
   return -1;
 }
 
-const RUNTIME_VERSION = "1.0.23";
+const RUNTIME_VERSION = "1.0.24";
 
 const PROXY_MEDIA_HOST_RE =
   /(?:googlevideo|gstatic|ytimg|ggpht|googleapis|doubleclick|youtube|phncdn|phprcdn|pornhub|trafficjunky|sb-cd|streamsb|doodcdn|doodstream|nhplayer|uncensoredhentai|vercel\.app|xvideos|xhamster|eporner|redtube|spankbang|xnxx|hstream\.moe|htstreaming|1hanime|hanime\.com|musume-h\.xyz|ane-h\.xyz|-h\.xyz)/i;
@@ -175,7 +175,7 @@ const NETWORK_PATCH = (base) =>
   `function n(u){try{return btoa(encodeURIComponent(u)).replace(/\\+/g,"-").replace(/\\//g,"_").replace(/=/g,"")}catch(e){return u}}` +
   `function x(h){h=String(h||"").toLowerCase();return (${PROXY_MEDIA_HOST_RE.toString()}).test(h)}` +
   `function p(u){try{var r=new URL(u,b);if(typeof location!=="undefined"&&r.origin===location.origin&&r.pathname.indexOf("/nv/")===0)return r.pathname+r.search+r.hash;var o=new URL(b);if(r.origin===o.origin)return"/nv/"+n(r.origin+"/")+r.pathname+r.search+r.hash;return"/nv/"+n(r.href)}catch(e){return u}}` +
-  `function u(v){try{if(v==null)return v;var t=String(v);if(!t||/^(javascript:|data:|blob:|#|\\/nv\\/|\\/api\\/|\\/app$|\\/nav\\/|\\/index\\.html|\\/nv\\.)/i.test(t))return v;var r=new URL(t,b);if(x(r.hostname))return p(r.href);if(r.origin===location.origin&&!/^\\/(?:nv\\/|api\\/|app$|nav\\/|index\\.html|nv\\.)/.test(r.pathname))return p((new URL(r.pathname+r.search+r.hash,b)).href);return p(r.href)}catch(e){return v}}` +
+  `function u(v){try{if(v==null)return v;var t=String(v);if(!t||/^(javascript:|data:|blob:|#|\\/nv\\/|\\/api\\/|\\/app$|\\/nav\\/|\\/index\\.html|\\/nv\\.)/i.test(t))return v;var r=new URL(t,b);if(x(r.hostname))return p(r.href);if(r.origin===location.origin){if(/^\\/(?:nv\\/|api\\/|app$|nav\\/|index\\.html|nv\\.)/.test(r.pathname))return r.pathname+r.search+r.hash;return p((new URL(r.pathname+r.search+r.hash,b)).href)}return p(r.href)}catch(e){return v}}` +
   `function k(v){try{if(v==null)return v;if(typeof v==="string"){if(/^\\/nv\\//i.test(v))return v;return u(v)}if(v&&typeof v.url==="string"){if(/^\\/nv\\//i.test(v.url))return v;var w=u(v.url);return w!==v.url?new Request(w,v):v}return v}catch(e){return v}}` +
   `try{var _pf=fetch;fetch=function(i,o){return _pf.call(this,k(i),o)}}catch(e){}` +
   `try{var _pxo=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(){var a=Array.prototype.slice.call(arguments);if(typeof a[1]==="string")a[1]=u(a[1]);return _pxo.apply(this,a)}}catch(e){}` +
