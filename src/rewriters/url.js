@@ -120,7 +120,13 @@ export function decodeNavionToken(pathname) {
 
 export function rewriteUrl(url, base) {
   if (!url) return url;
-  const trimmed = url.trim();
+  const trimmed = url
+    .trim()
+    .replace(/\\u0026/gi, "&")
+    .replace(/\\u003d/gi, "=")
+    .replace(/\\u002f/gi, "/")
+    .replace(/\\u003f/gi, "?")
+    .replace(/\\x26/gi, "&");
   if (
     BYPASS_SCHEME_RE.test(trimmed) ||
     trimmed.startsWith("#") ||

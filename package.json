@@ -1,6 +1,6 @@
 {
   "name": "navion",
-  "version": "1.0.20",
+  "version": "1.0.23",
   "description": "Zero-dependency web proxy engine with URL, HTML, CSS, and JS rewriting and built-in DNS-over-HTTPS resolution",
   "repository": {
     "type": "git",
@@ -34,15 +34,6 @@
   ],
   "scripts": {
     "start": "node server.js",
-    "check": "node --check server.js && node --check src/server/index.js && node --check src/server/create-app-server.js && node --check src/proxy.js && node --check src/internal/doh-resolver.js",
-    "test": "node --test test/*.js",
-    "test:sites": "node scripts/proxy-site-test.mjs",
-    "test:features": "node scripts/feature-test.mjs",
-    "test:browser": "node scripts/browser-test.mjs",
-    "test:screenshots": "node scripts/capture-screenshots.mjs"
-  },
-  "devDependencies": {
-    "playwright": "^1.61.1"
-  },
-  "dependencies": {}
+    "check": "node --check server.js && node --check src/server/index.js && node --check src/server/create-app-server.js && node --check src/proxy.js && node --check src/internal/doh-resolver.js"
+  }
 }

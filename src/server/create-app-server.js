@@ -459,9 +459,6 @@ export function createServer(options = {}) {
           return;
         }
       }
-      if (dest === "iframe" && accept.includes("text/html")) {
-        // Always proxy iframe navigations directly.
-      }
       const { baseTarget } = baseContext;
       const rawNavionPath = url.pathname.slice(NAVION_PREFIX.length);
       let target = null;

@@ -180,6 +180,7 @@ function isAdultContentHost(hostname) {
   if (host.endsWith(".sb-cd.com") || host.endsWith(".streamsb.net")) return true;
   if (host.endsWith(".doodstream.com") || host.endsWith(".doodcdn.co")) return true;
   if (host.endsWith(".htstreaming.com") || host.endsWith(".1hanime.com")) return true;
+  if (host.endsWith(".musume-h.xyz") || host.endsWith(".ane-h.xyz") || host.endsWith("-h.xyz")) return true;
   if (host.endsWith(".hanime.com") && !host.endsWith(".hanime.tv")) return true;
   return false;
 }
@@ -270,7 +271,15 @@ function rewriteMediaManifest(source, baseUrl) {
     if (!raw || raw.startsWith("#") || /^(?:data:|blob:|javascript:)/i.test(raw)) return value;
     return rewriteUrl(raw, baseUrl);
   };
-  return String(source || "")
+  const text = String(source || "");
+  if (text.trim().startsWith("<?xml") || text.includes("<MPD")) {
+    return text
+      .replace(/<BaseURL>([^<]+)<\/BaseURL>/gi, (m, value) => `<BaseURL>${rewriteManifestUrl(value)}</BaseURL>`)
+      .replace(/<Location>([^<]+)<\/Location>/gi, (m, value) => `<Location>${rewriteManifestUrl(value)}</Location>`)
+      .replace(/<SegmentTemplate([^>]*)\bmedia=(["'])([^"']+)\2/gi, (m, attrs, q, value) => `<SegmentTemplate${attrs}media=${q}${rewriteManifestUrl(value)}${q}`)
+      .replace(/<SegmentTemplate([^>]*)\binitialization=(["'])([^"']+)\2/gi, (m, attrs, q, value) => `<SegmentTemplate${attrs}initialization=${q}${rewriteManifestUrl(value)}${q}`);
+  }
+  return text
     .replace(/\bURI=(["'])([^"']+)\1/g, (m, q, value) => `URI=${q}${rewriteManifestUrl(value)}${q}`)
     .replace(/\bURL=(["'])([^"']+)\1/g, (m, q, value) => `URL=${q}${rewriteManifestUrl(value)}${q}`)
     .split(/\r?\n/)
@@ -360,6 +369,70 @@ function sanitizeNhPlayerHtml(source, resourceUrl) {
       .replace(/\(function\s+checkResult\s*\(\)\s*\{/, `${seedResult}(function checkResult(){`);
   } catch {
     return source;
+  }
+}
+
+function stripPornhubHotlinkRedirect(source) {
+  return String(source || "").replace(
+    /inject:\s*function\s*\(\s*\)\s*\{[\s\S]*?hotlinkerredirects[\s\S]*?\}\s*\}/gi,
+    "inject:function(){}"
+  );
+}
+
+function injectPornhubGuards(source) {
+  if (!String(source || "").includes("</head>")) return source;
+  if (String(source).includes("nv-ph-guard")) return source;
+  const stub =
+    `<script id="nv-ph-guard">!function(){try{var ok=function(){return Promise.resolve({isPrivate:false,browserName:"chrome"})};window.detectIncognito=ok;if(window.detectIncognitoSync)window.detectIncognitoSync=function(){return{isPrivate:false}};window.addEventListener("error",function(e){if(e&&e.message&&/detectIncognito|Browser not supported/i.test(e.message)){e.preventDefault();e.stopImmediatePropagation();return true}},true);window.addEventListener("unhandledrejection",function(e){var r=e&&e.reason?String(e.reason.message||e.reason):"";if(/detectIncognito|Browser not supported/i.test(r))e.preventDefault()},true);var stop=function(u){u=String(u||"");return u.indexOf("chrome-error:")===0||/incognito|private/i.test(u)};var _a=location.assign.bind(location),_r=location.replace.bind(location);location.assign=function(u){if(stop(u))return;return _a(u)};location.replace=function(u){if(stop(u))return;return _r(u)};if(window.top!==window&&window.top.location){window.top.location.assign=function(u){return location.assign(u)};window.top.location.replace=function(u){return location.replace(u)}}}catch(e){}}();</script>`;
+  return String(source).replace(/<head([^>]*)>/i, `<head$1>${stub}`);
+}
+
+function isHstreamHost(hostname) {
+  const host = String(hostname || "").toLowerCase();
+  return host === "hstream.moe" || host.endsWith(".hstream.moe");
+}
+
+function isHstreamCdnHost(hostname) {
+  const host = String(hostname || "").toLowerCase();
+  return host.endsWith("-h.xyz") || host.endsWith(".musume-h.xyz") || host.endsWith(".ane-h.xyz");
+}
+
+function injectHstreamCsrfHelper(source) {
+  if (!String(source || "").includes("data-csrf")) return source;
+  if (String(source).includes("nv-hstream-csrf")) return source;
+  const helper =
+    `<script id="nv-hstream-csrf">!function(){function csrf(){var n=document.querySelector("[data-csrf]");return n&&n.getAttribute("data-csrf")||""}function patchHeaders(h){var t=csrf();if(!t||!h)return h;h=h||{};if(h instanceof Headers){if(!h.has("X-CSRF-TOKEN"))h.set("X-CSRF-TOKEN",t);if(!h.has("X-XSRF-TOKEN"))h.set("X-XSRF-TOKEN",t);return h}h["X-CSRF-TOKEN"]=h["X-CSRF-TOKEN"]||t;h["X-XSRF-TOKEN"]=h["X-XSRF-TOKEN"]||t;return h}var o=fetch;fetch=function(i,n){n=n||{};var m=String(n.method||"GET").toUpperCase();if(m!=="GET"&&m!=="HEAD"){n.headers=patchHeaders(n.headers)}return o.call(this,i,n)};function patchAxios(){if(!window.axios||!window.axios.interceptors)return;var id=window.axios.interceptors.request.use(function(c){c=c||{};c.headers=patchHeaders(c.headers||{});return c});window.axios.__nvCsrf=id}patchAxios();setInterval(patchAxios,1500)}();</script>`;
+  return String(source).replace(/<\/body>/i, `${helper}</body>`);
+}
+
+function injectHstreamMediaHelper(source) {
+  if (!String(source || "").includes("hstream")) return source;
+  if (String(source).includes("nv-hstream-media")) return source;
+  const helper =
+    `<script id="nv-hstream-media">!function(){var cdn="";function rememberUrl(u){try{if(typeof u!=="string"||!u)return;if(u.indexOf("-h.xyz")<0)return;if(u.indexOf("/nv/")===0&&window.__navion){var tok=u.slice(4).split("/")[0];u=window.__navion.decode(tok)||u}var o=new URL(u,location.href);if(o.hostname.indexOf("-h.xyz")>=0)cdn=o.origin}catch(e){}}function rewriteMediaUrl(v){try{if(typeof v!=="string"||!v)return v;if(window.__navion){if(/^https?:\\/\\//i.test(v)&&v.indexOf("/nv/")<0&&v.indexOf("-h.xyz")>=0){rememberUrl(v);return window.__navion.rewrite(v,location.href)}if(v.charAt(0)==="/"&&v.indexOf("/nv/")!==0&&cdn&&/(?:manifest\\.mpd|\\.m3u8|\\.webp|chunk-stream|init-stream)/i.test(v))return window.__navion.rewrite(cdn+v,location.href);if(v.indexOf("/nv/")===0)rememberUrl(v)}return v}catch(e){return v}}function patchFetch(){if(window.__nvHstreamFetch)return;var o=fetch;fetch=function(i,n){try{var u=typeof i==="string"?i:i&&i.url;if(typeof u==="string"){var rw=rewriteMediaUrl(u);if(rw!==u)i=typeof i==="string"?rw:new Request(rw,i)}}catch(e){}return o.call(this,i,n).then(function(r){try{if(r&&r.ok){var ct=(r.headers&&r.headers.get("content-type"))||"";if(/json|text|javascript/i.test(ct))return r.clone().text().then(function(t){var m=t.match(/https?:\\/\\/[^"'\\s]+-h\\.xyz[^"'\\s]*/i);if(m)rememberUrl(m[0]);return r}).catch(function(){return r})}}catch(e2){}return r})};window.__nvHstreamFetch=1}function patchXhr(){if(XMLHttpRequest.prototype.__nvHstreamOpen)return;var o=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(m,u){try{u=rewriteMediaUrl(u)}catch(e){}return o.apply(this,[m,u].concat([].slice.call(arguments,2)))};XMLHttpRequest.prototype.__nvHstreamOpen=1}function patchVideo(){if(HTMLMediaElement.prototype.__nvHstreamSrc)return;var d=Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype,"src");if(!d||!d.set)return;var base=d.set;Object.defineProperty(HTMLMediaElement.prototype,"src",{configurable:true,enumerable:d.enumerable,get:d.get,set:function(v){v=rewriteMediaUrl(v);return base.call(this,v)}});HTMLMediaElement.prototype.__nvHstreamSrc=1}function boot(){patchFetch();patchXhr();patchVideo()}boot();setInterval(boot,1200);new MutationObserver(function(){document.querySelectorAll("video[src]").forEach(function(v){var s=v.getAttribute("src");var rw=rewriteMediaUrl(s);if(rw&&rw!==s)v.setAttribute("src",rw)})}).observe(document.documentElement,{subtree:true,attributes:true,attributeFilter:["src"]})}();</script>`;
+  return String(source).replace(/<\/body>/i, `${helper}</body>`);
+}
+
+function applyHstreamHeaders(hostname, fwdHeaders, method) {
+  if (!isHstreamHost(hostname) && !isHstreamCdnHost(hostname)) return;
+  fwdHeaders.referer = fwdHeaders.referer || "https://hstream.moe/";
+  if (isHstreamCdnHost(hostname)) {
+    fwdHeaders.origin = fwdHeaders.origin || "https://hstream.moe";
+    fwdHeaders.accept = fwdHeaders.accept || "*/*";
+  }
+  const verb = String(method || "GET").toUpperCase();
+  if (verb === "POST" || verb === "PUT" || verb === "PATCH" || verb === "DELETE") {
+    fwdHeaders.origin = fwdHeaders.origin || "https://hstream.moe";
+    const cookieStr = String(fwdHeaders.cookie || "");
+    const xsrfMatch = cookieStr.match(/(?:^|;\s*)XSRF-TOKEN=([^;]+)/i);
+    if (xsrfMatch && !fwdHeaders["x-xsrf-token"]) {
+      try {
+        fwdHeaders["x-xsrf-token"] = decodeURIComponent(xsrfMatch[1]);
+      } catch {
+        fwdHeaders["x-xsrf-token"] = xsrfMatch[1];
+      }
+    }
+    if (!fwdHeaders.accept) fwdHeaders.accept = "application/json, text/plain, */*";
   }
 }
 
@@ -1359,6 +1432,13 @@ export async function handleProxy(req, res, url) {
         if (ref.pathname.startsWith(PREFIX)) {
           const decodedRef = decodeProxyPathTarget(ref.pathname, ref.search);
           if (decodedRef) fwdHeaders["referer"] = decodedRef;
+        } else if (inCookies.nv_base) {
+          const shellHost = String(req.headers.host || "localhost");
+          const shellOrigin = `http://${shellHost}`;
+          if (ref.origin === shellOrigin && (ref.pathname === "/app" || ref.pathname === "/")) {
+            const base = decode(inCookies.nv_base);
+            if (/^https?:\/\//i.test(base)) fwdHeaders["referer"] = base;
+          }
         }
       } catch {}
       continue;
@@ -1399,6 +1479,7 @@ export async function handleProxy(req, res, url) {
     (isYouTubeHost || host === "ytimg.com" || host.endsWith(".ytimg.com"));
   const upstreamCookie = buildUpstreamCookieHeader(sessionId, targetUrl);
   if (upstreamCookie) fwdHeaders.cookie = upstreamCookie;
+  applyHstreamHeaders(host, fwdHeaders, req.method || "GET");
     if (isYouTubeGenerate204) {
       const quickHeaders = { "cache-control": "no-store" };
       if (setSessionCookie) quickHeaders["set-cookie"] = navionSessionCookieValue(sessionId);
@@ -1634,6 +1715,17 @@ export async function handleProxy(req, res, url) {
       const charset = (ct.match(/charset=([\w-]+)/i) || [])[1] || "utf-8";
       let text = buf.toString(/utf-?8/i.test(charset) ? "utf8" : "latin1");
       text = sanitizeNhPlayerHtml(text, finalUrl || targetUrl);
+      try {
+        const stripHost = new URL(finalUrl || targetUrl).hostname.toLowerCase();
+        if (isPornhubHost(stripHost)) {
+          text = stripPornhubHotlinkRedirect(text);
+          text = injectPornhubGuards(text);
+        }
+        if (isHstreamHost(stripHost)) {
+          text = injectHstreamCsrfHelper(text);
+          text = injectHstreamMediaHelper(text);
+        }
+      } catch {}
       if (isGoogleIdentityDocument(finalUrl)) {
         outHeaders["content-type"] = "text/html; charset=utf-8";
         delete outHeaders["content-length"];
@@ -1666,9 +1758,10 @@ export async function handleProxy(req, res, url) {
         ) {
           injectRuntime = true;
           const ytDest = String(req.headers["sec-fetch-dest"] || "").toLowerCase();
-          runtimeMode = (ytDest === "iframe" || ytDest === "frame") ? "lite-nav" : "full";
+          const ytIframe = ytDest === "iframe" || ytDest === "frame";
+          runtimeMode = ytIframe ? "lite-nav" : "full";
           rewriteMode = "full";
-          injectYouTubeHelper = true;
+          injectYouTubeHelper = !ytIframe;
         } else if (
           htmlHost === "duck.ai" ||
           htmlHost.endsWith(".duck.ai") ||

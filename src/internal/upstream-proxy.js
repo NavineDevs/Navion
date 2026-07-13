@@ -44,6 +44,10 @@ const DEFAULT_BLOCKED_HOSTS = [
   "*.doodcdn.co",
   "nhplayer.com",
   "*.nhplayer.com",
+  "musume-h.xyz",
+  "*.musume-h.xyz",
+  "ane-h.xyz",
+  "*.ane-h.xyz",
 ];
 
 let cachedAutoProxy = null;

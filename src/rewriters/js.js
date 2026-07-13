@@ -1,7 +1,7 @@
 import { rewriteUrl } from "./url.js";
 
 const PROXY_LITERAL_HOST_RE =
-  /(?:googlevideo|gstatic|ytimg|ggpht|googleapis|doubleclick|youtube|phncdn|phprcdn|pornhub|trafficjunky|sb-cd|streamsb|doodcdn|doodstream|nhplayer|uncensoredhentai|vercel\.app|xvideos|xhamster|eporner|redtube|spankbang|xnxx|hstream\.moe|htstreaming|1hanime|hanime\.com)/i;
+  /(?:googlevideo|gstatic|ytimg|ggpht|googleapis|doubleclick|youtube|phncdn|phprcdn|pornhub|trafficjunky|sb-cd|streamsb|doodcdn|doodstream|nhplayer|uncensoredhentai|vercel\.app|xvideos|xhamster|eporner|redtube|spankbang|xnxx|hstream\.moe|htstreaming|1hanime|hanime\.com|musume-h\.xyz|ane-h\.xyz|-h\.xyz)/i;
 
 function shouldRewriteLiteral(value) {
   if (!value || value.includes("${")) return false;
@@ -18,7 +18,13 @@ function shouldRewriteLiteral(value) {
 
 function rewriteScriptUrlLiteral(url, base) {
   if (!url) return url;
-  const value = String(url).trim();
+  const value = String(url)
+    .replace(/\\u0026/gi, "&")
+    .replace(/\\u003d/gi, "=")
+    .replace(/\\u002f/gi, "/")
+    .replace(/\\u003f/gi, "?")
+    .replace(/\\x26/gi, "&")
+    .trim();
   if (!value) return url;
   if (value.includes("${") || value.includes("}")) return url;
   if (/^[A-Z][A-Z0-9_-]*$/.test(value)) return url;
