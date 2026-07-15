@@ -354,8 +354,68 @@ export function createServer(options = {}) {
     return handleProxy(req, res, proxyUrl);
   }
 
+  async function proxyJikan(req, res, url) {
+    const raw = url.searchParams.get("url") || "";
+    let target;
+    try {
+      target = new URL(raw);
+    } catch {
+      res.writeHead(400, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
+      res.end(JSON.stringify({ error: "Invalid Jikan URL" }));
+      return;
+    }
+    if (target.protocol !== "https:" || target.hostname !== "api.jikan.moe" || !target.pathname.startsWith("/v4/")) {
+      res.writeHead(403, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
+      res.end(JSON.stringify({ error: "Jikan URL not allowed" }));
+      return;
+    }
+    try {
+      const upstream = await fetch(target.href, {
+        method: req.method === "HEAD" ? "HEAD" : "GET",
+        headers: {
+          accept: req.headers.accept || "application/json",
+          "accept-language": req.headers["accept-language"] || "en-US,en;q=0.9",
+          "user-agent": req.headers["user-agent"] || "Mozilla/5.0",
+        },
+      });
+      const headers = {
+        "Content-Type": upstream.headers.get("content-type") || "application/json; charset=utf-8",
+        "Cache-Control": "public, max-age=120",
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+        "Access-Control-Allow-Headers": "accept, accept-language, content-type",
+      };
+      if (req.method === "HEAD") {
+        res.writeHead(upstream.status, headers);
+        res.end();
+        return;
+      }
+      const body = Buffer.from(await upstream.arrayBuffer());
+      headers["Content-Length"] = String(body.length);
+      res.writeHead(upstream.status, headers);
+      res.end(body);
+    } catch {
+      res.writeHead(502, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
+      res.end(JSON.stringify({ error: "Jikan request failed" }));
+    }
+  }
+
   return http.createServer(async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host}`);
+
+    if (url.pathname === "/api/jikan") {
+      if (req.method === "OPTIONS") {
+        res.writeHead(204, {
+          "Cache-Control": "no-store",
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+          "Access-Control-Allow-Headers": "accept, accept-language, content-type",
+        });
+        res.end();
+        return;
+      }
+      return proxyJikan(req, res, url);
+    }
 
     if (url.pathname === apiEndpoint) {
       try {

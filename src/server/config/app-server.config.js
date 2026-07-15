@@ -18,6 +18,7 @@ export const NAVION_APP_SERVER_DEFAULTS = {
     "/nv.register.js",
     "/logo.png",
     "/generate_204",
+    "/api/jikan",
     "/api/navion-status",
   ]),
 };

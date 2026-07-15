@@ -14,13 +14,6 @@ const URL_ATTRS = new Set([
 ]);
 const SRCSET_ATTRS = new Set(["srcset", "imagesrcset", "data-srcset"]);
 const EVENT_ATTR_RE = /^on[a-z][\w:-]*$/i;
-const SANDBOX_TOKENS = [
-  "allow-scripts",
-  "allow-same-origin",
-  "allow-forms",
-  "allow-presentation",
-  "allow-downloads",
-];
 const NAV_ONLY_TAG_ATTRS = {
   a: new Set(["href", "ping"]),
   area: new Set(["href"]),
@@ -97,12 +90,6 @@ function rewriteSrcdoc(value, base) {
   return rewriteHtml(value, base, { injectRuntime: false, rewriteMode: "full" });
 }
 
-function normalizeSandboxValue(value) {
-  const tokens = new Set(String(value || "").split(/\s+/).filter(Boolean));
-  for (const token of SANDBOX_TOKENS) tokens.add(token);
-  return Array.from(tokens).join(" ");
-}
-
 function processAttrs(attrs, base, tagName, rewriteMode) {
   const isNavOnly = rewriteMode === "nav-only";
   const allowed = isNavOnly ? NAV_ONLY_TAG_ATTRS[tagName] : null;
@@ -115,10 +102,8 @@ function processAttrs(attrs, base, tagName, rewriteMode) {
       const eq = hasValue ? "=" : "";
       const quote = q || "";
       const wrap = (next) => hasValue ? sp + name + eq + (quote ? quote + next + quote : next) : sp + name;
+      if ((tagName === "iframe" || tagName === "frame") && n === "sandbox") return "";
       if (!hasValue) return m;
-      if ((tagName === "iframe" || tagName === "frame") && n === "sandbox") {
-        return wrap(normalizeSandboxValue(val));
-      }
       if (!isNavOnly && n === "integrity") return "";
       if (n === "target" && /^_blank$/i.test(String(val || "").trim())) return wrap("_self");
       if (!isNavOnly && n === "style") return wrap(rewriteCss(val, base));
@@ -126,10 +111,12 @@ function processAttrs(attrs, base, tagName, rewriteMode) {
       if (!isNavOnly && n === "srcdoc") return wrap(rewriteSrcdoc(val, base));
       if (URL_ATTRS.has(n)) {
         if (isNavOnly && (!allowed || !allowed.has(n))) return m;
+        if (isLocalNavionUrl(val)) return m;
         return wrap(rewriteUrl(val.trim(), base));
       }
       if (SRCSET_ATTRS.has(n)) {
         if (isNavOnly && (!allowed || !allowed.has(n))) return m;
+        if (isLocalNavionUrl(val)) return m;
         return wrap(rewriteSrcset(val, base));
       }
       if (n === "content") {
@@ -139,14 +126,7 @@ function processAttrs(attrs, base, tagName, rewriteMode) {
       return m;
     }
   );
-  if (tagName === "iframe" || tagName === "frame") {
-    out = out.replace(/(\s+sandbox\s*=\s*)([^\s"'=<>`]+)/i, (m, pre, val) => {
-      return pre + `"${normalizeSandboxValue(val)}"`;
-    });
-    out = out.replace(/(\s+)sandbox(?=\s|$)/i, (m, sp) => {
-      return sp + `sandbox="${normalizeSandboxValue("")}"`;
-    });
-  }
+  if (tagName === "iframe" || tagName === "frame") out = out.replace(/\s+sandbox(?:\s*=\s*(?:(["'])[\s\S]*?\1|[^\s"'=<>`]+))?/gi, "");
   return out;
 }
 
@@ -161,7 +141,7 @@ function findTagEnd(html, from) {
   return -1;
 }
 
-const RUNTIME_VERSION = "1.0.24";
+const RUNTIME_VERSION = "1.0.37";
 
 const PROXY_MEDIA_HOST_RE =
   /(?:googlevideo|gstatic|ytimg|ggpht|googleapis|doubleclick|youtube|phncdn|phprcdn|pornhub|trafficjunky|sb-cd|streamsb|doodcdn|doodstream|nhplayer|uncensoredhentai|vercel\.app|xvideos|xhamster|eporner|redtube|spankbang|xnxx|hstream\.moe|htstreaming|1hanime|hanime\.com|musume-h\.xyz|ane-h\.xyz|-h\.xyz)/i;
@@ -170,19 +150,23 @@ function needsProxyMediaHost(hostname) {
   return PROXY_MEDIA_HOST_RE.test(String(hostname || "").toLowerCase());
 }
 
+function isLocalNavionUrl(value) {
+  return /^(?:\/(?:nv\.client\.js|nv\.register\.js|nv\.sw\.js|favicon\.ico|generate_204|app|index\.html|nav\/|api\/(?:fetch|navion-status|jikan)(?:[/?#]|$))|#|javascript:|data:|blob:|mailto:|tel:|about:)/i.test(String(value || "").trim());
+}
+
 const NETWORK_PATCH = (base) =>
   `<script>!function(){var b=${JSON.stringify(base)};` +
   `function n(u){try{return btoa(encodeURIComponent(u)).replace(/\\+/g,"-").replace(/\\//g,"_").replace(/=/g,"")}catch(e){return u}}` +
   `function x(h){h=String(h||"").toLowerCase();return (${PROXY_MEDIA_HOST_RE.toString()}).test(h)}` +
   `function p(u){try{var r=new URL(u,b);if(typeof location!=="undefined"&&r.origin===location.origin&&r.pathname.indexOf("/nv/")===0)return r.pathname+r.search+r.hash;var o=new URL(b);if(r.origin===o.origin)return"/nv/"+n(r.origin+"/")+r.pathname+r.search+r.hash;return"/nv/"+n(r.href)}catch(e){return u}}` +
-  `function u(v){try{if(v==null)return v;var t=String(v);if(!t||/^(javascript:|data:|blob:|#|\\/nv\\/|\\/api\\/|\\/app$|\\/nav\\/|\\/index\\.html|\\/nv\\.)/i.test(t))return v;var r=new URL(t,b);if(x(r.hostname))return p(r.href);if(r.origin===location.origin){if(/^\\/(?:nv\\/|api\\/|app$|nav\\/|index\\.html|nv\\.)/.test(r.pathname))return r.pathname+r.search+r.hash;return p((new URL(r.pathname+r.search+r.hash,b)).href)}return p(r.href)}catch(e){return v}}` +
+  `function u(v){try{if(v==null)return v;var t=String(v);if(!t||/^(javascript:|data:|blob:|#|\\/nv\\/|\\/api\\/(?:fetch|navion-status|jikan)(?:[/?#]|$)|\\/app$|\\/nav\\/|\\/index\\.html|\\/nv\\.)/i.test(t))return v;var r=new URL(t,b);if(x(r.hostname))return p(r.href);if(r.origin===location.origin){if(/^\\/(?:nv\\/|api\\/(?:fetch|navion-status|jikan)(?:[/?#]|$)|app$|nav\\/|index\\.html|nv\\.)/.test(r.pathname))return r.pathname+r.search+r.hash;return p((new URL(r.pathname+r.search+r.hash,b)).href)}return p(r.href)}catch(e){return v}}` +
   `function k(v){try{if(v==null)return v;if(typeof v==="string"){if(/^\\/nv\\//i.test(v))return v;return u(v)}if(v&&typeof v.url==="string"){if(/^\\/nv\\//i.test(v.url))return v;var w=u(v.url);return w!==v.url?new Request(w,v):v}return v}catch(e){return v}}` +
   `try{var _pf=fetch;fetch=function(i,o){return _pf.call(this,k(i),o)}}catch(e){}` +
   `try{var _pxo=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(){var a=Array.prototype.slice.call(arguments);if(typeof a[1]==="string")a[1]=u(a[1]);return _pxo.apply(this,a)}}catch(e){}` +
   `try{var _pr=window.Request;window.Request=function(i,o){return new _pr(k(i),o)}}catch(e){}` +
   `try{var _psb=navigator.sendBeacon;navigator.sendBeacon=function(t,d){if(typeof t==="string")t=u(t);return _psb.call(this,t,d)}}catch(e){}` +
   `try{var _ni=window.Image;window.Image=function(){var a=arguments,i=new _ni(a[0],a[1]);if(typeof a[0]==="string")i.src=u(a[0]);return i};window.Image.prototype=_ni.prototype}catch(e){}` +
-  `try{function _ps(proto,prop){if(!proto)return;var d=Object.getOwnPropertyDescriptor(proto,prop);if(!d||typeof d.set!=="function")return;Object.defineProperty(proto,prop,{configurable:true,enumerable:d.enumerable,get:d.get,set:function(v){if(typeof v==="string")v=u(v);return d.set.call(this,v)}})}_ps(HTMLImageElement&&HTMLImageElement.prototype,"src");_ps(HTMLVideoElement&&HTMLVideoElement.prototype,"src");_ps(HTMLAudioElement&&HTMLAudioElement.prototype,"src");_ps(HTMLSourceElement&&HTMLSourceElement.prototype,"src");_ps(HTMLScriptElement&&HTMLScriptElement.prototype,"src");_ps(HTMLIFrameElement&&HTMLIFrameElement.prototype,"src");_ps(HTMLLinkElement&&HTMLLinkElement.prototype,"href");_ps(HTMLAnchorElement&&HTMLAnchorElement.prototype,"href");_ps(HTMLFormElement&&HTMLFormElement.prototype,"action")}catch(e){}` +
+  `try{function _ps(proto,prop){if(!proto)return;var d=Object.getOwnPropertyDescriptor(proto,prop);if(!d||typeof d.set!=="function")return;Object.defineProperty(proto,prop,{configurable:true,enumerable:d.enumerable,get:d.get,set:function(v){if(typeof v==="string")v=u(v);return d.set.call(this,v)}})}_ps(HTMLImageElement&&HTMLImageElement.prototype,"src");_ps(HTMLVideoElement&&HTMLVideoElement.prototype,"src");_ps(HTMLAudioElement&&HTMLAudioElement.prototype,"src");_ps(HTMLSourceElement&&HTMLSourceElement.prototype,"src");_ps(HTMLScriptElement&&HTMLScriptElement.prototype,"src");_ps(HTMLIFrameElement&&HTMLIFrameElement.prototype,"src");_ps(HTMLLinkElement&&HTMLLinkElement.prototype,"href");_ps(HTMLAnchorElement&&HTMLAnchorElement.prototype,"href");_ps(HTMLFormElement&&HTMLFormElement.prototype,"action");var _sa=Element&&Element.prototype&&Element.prototype.setAttribute;if(_sa)Element.prototype.setAttribute=function(n,v){try{var k=String(n||"").toLowerCase();if(typeof v==="string"&&/^(src|href|action|poster|data|srcset|formaction|xlink:href)$/.test(k))v=u(v)}catch(e){}return _sa.call(this,n,v)}}catch(e){}` +
   `}();</script>`;
 
 const YOUTUBE_FALLBACK = (base) =>
@@ -217,14 +201,21 @@ const YOUTUBE_RECOVERY = (base) =>
   `render();setTimeout(render,1800);setTimeout(render,4200);var n=0,t=setInterval(function(){render();if(++n>10||document.querySelector(".nvyt-shell"))clearInterval(t)},1200);addEventListener("load",function(){setTimeout(render,1200)},true)}` +
   `();</script>`;
 
-const DARK_MODE_HINT = `<meta name="color-scheme" content="dark"><style id="nv-dark-mode">html{color-scheme:dark!important}body{color-scheme:dark!important}</style>`;
+const DARK_MODE_HINT = `<meta name="color-scheme" content="dark"><style id="nv-dark-mode">html,body{color-scheme:dark!important;background:#0f0f0f!important}html[data-navion-dark] body,html[data-navion-dark] ytd-app,html[data-navion-dark] #page-manager,html[data-navion-dark] ytd-page-manager{background:#0f0f0f!important;color:#f1f1f1!important}html[data-navion-dark] :is(input,textarea,select,button){color-scheme:dark!important}html[data-navion-dark] :not(img):not(video):not(canvas):not(svg):not(path):not(use){border-color:#303030!important}html[data-navion-dark] [class*="skeleton"],html[data-navion-dark] [class*="placeholder"],html[data-navion-dark] [class*="shimmer"]{background-color:#242424!important;color:#f1f1f1!important}</style>`;
+const DARK_MODE_SCRIPT =
+  `<script>!function(){` +
+  `function a(){try{var d=document.documentElement;d.setAttribute("data-navion-dark","");d.setAttribute("data-theme","dark");d.setAttribute("data-color-mode","dark");d.setAttribute("data-bs-theme","dark");d.classList.add("dark","theme-dark","nv-force-dark");d.style.colorScheme="dark";if(document.body){document.body.setAttribute("data-theme","dark");document.body.classList.add("dark","theme-dark","nv-force-dark");document.body.style.colorScheme="dark"}}catch(e){}}` +
+  `function s(k,v){try{localStorage.setItem(k,v)}catch(e){}try{sessionStorage.setItem(k,v)}catch(e){}}["theme","color-theme","colorMode","color-mode","preferred-theme","preferredTheme","darkMode","mode"].forEach(function(k){s(k,"dark")});` +
+  `try{var m=window.matchMedia;window.matchMedia=function(q){var r=m.call(this,q);try{if(/prefers-color-scheme\\s*:\\s*dark/i.test(String(q)))Object.defineProperty(r,"matches",{configurable:true,value:true});if(/prefers-color-scheme\\s*:\\s*light/i.test(String(q)))Object.defineProperty(r,"matches",{configurable:true,value:false})}catch(e){}return r}}catch(e){}` +
+  `a();document.addEventListener("DOMContentLoaded",a,true);setInterval(a,1500);` +
+  `}();</script>`;
 
 const YOUTUBE_HELPER = (base) =>
   `<script>!function(){var b=${JSON.stringify(base)};` +
   `function i(e){try{var m=String(e&&e.message||e&&e.reason&&e.reason.message||e&&e.reason||e||"");return m.indexOf("LegacyDataMixin")!==-1||m.indexOf("_legacyUndefinedCheck")!==-1||m.indexOf("playlistHandlerActionMap")!==-1}catch(x){return false}}window.addEventListener("error",function(e){if(i(e)){e.preventDefault();e.stopImmediatePropagation()}},true);window.addEventListener("unhandledrejection",function(e){if(i(e)){e.preventDefault();e.stopImmediatePropagation()}},true);try{var ow=console.warn,oe=console.error;console.warn=function(){if(i(Array.prototype.join.call(arguments," ")))return;return ow.apply(console,arguments)};console.error=function(){if(i(Array.prototype.join.call(arguments," ")))return;return oe.apply(console,arguments)}}catch(e){}` +
   `function n(u){try{return btoa(encodeURIComponent(u)).replace(/\\+/g,"-").replace(/\\//g,"_").replace(/=/g,"")}catch(e){return u}}` +
   `function p(u){try{var r=new URL(u,b);if(typeof location!=="undefined"&&r.origin===location.origin&&r.pathname.indexOf("/nv/")===0)return r.pathname+r.search+r.hash;var o=new URL(b);if(r.origin===o.origin)return"/nv/"+n(r.origin+"/")+r.pathname+r.search+r.hash;return"/nv/"+n(r.href)}catch(e){return u}}` +
-  `function u(x){try{if(x==null)return x;var t=String(x);if(!t||/^(javascript:|data:|blob:|#|\\/nv\\/|\\/api\\/|\\/app$|\\/nav\\/|\\/index\\.html|\\/nv\\.)/i.test(t))return x;var r=new URL(t,b);return p(r.href)}catch(e){return x}}` +
+  `function u(x){try{if(x==null)return x;var t=String(x);if(!t||/^(javascript:|data:|blob:|#|\\/nv\\/|\\/api\\/(?:fetch|navion-status|jikan)(?:[/?#]|$)|\\/app$|\\/nav\\/|\\/index\\.html|\\/nv\\.)/i.test(t))return x;var r=new URL(t,b);return p(r.href)}catch(e){return x}}` +
   `function k(x){try{if(x==null)return x;if(typeof x==="string"){if(/^\\/nv\\//i.test(x))return x;return u(x)}if(x&&typeof x.url==="string"){if(/^\\/nv\\//i.test(x.url))return x;var v=u(x.url);return v!==x.url?new Request(v,x):x}return x}catch(e){return x}}` +
   `try{var _vi=HTMLVideoElement.prototype,_ai=HTMLAudioElement.prototype,_si=HTMLSourceElement.prototype;function _ps(proto,prop){if(!proto)return;var d=Object.getOwnPropertyDescriptor(proto,prop);if(!d||typeof d.set!=="function")return;Object.defineProperty(proto,prop,{configurable:true,enumerable:d.enumerable,get:d.get,set:function(v){if(typeof v==="string")v=u(v);return d.set.call(this,v)}})}_ps(_vi,"src");_ps(_ai,"src");_ps(_si,"src")}catch(e){}` +
   `function d(){try{document.documentElement.setAttribute("dark","");document.documentElement.setAttribute("data-theme","dark");document.documentElement.style.colorScheme="dark";if(document.body){document.body.setAttribute("dark","");document.body.style.colorScheme="dark"}var s=document.getElementById("nvyt-dark");if(!s&&document.head){s=document.createElement("style");s.id="nvyt-dark";s.textContent="html,body,ytd-app{color-scheme:dark!important;background:#0f0f0f!important}html[dark] ytd-app,html[dark] #page-manager,html[dark] ytd-page-manager{background:#0f0f0f!important}html,body{overscroll-behavior:none!important}";document.head.appendChild(s)}}catch(e){}}` +
@@ -244,7 +235,7 @@ const YOUTUBE_HELPER = (base) =>
 
 const INJECT = (base, mode, youtubeHelper, youtubeRecovery) =>
   NETWORK_PATCH(base) +
-  DARK_MODE_HINT + `<script>!function(){` +
+  DARK_MODE_HINT + DARK_MODE_SCRIPT + `<script>!function(){` +
   `if(window.__navionRuntimeLoaded)return;window.__navionRuntimeLoaded=true;window.__navionScope=window.__navionScope||{window:window,self:window.self||window,globalThis:window.globalThis||window};` +
   `try{window.open=function(u,t){if(typeof u==="string"&&/^_(?:self|top|parent)$/i.test(String(t||"")))location.assign(window.__navion&&window.__navion.rewrite?window.__navion.rewrite(u,window.__navion.base):u);return null}}catch(e){}` +
   `var _cw=console.warn,_ce=console.error,_cl=console.log;function _nf(a){try{var s=Array.prototype.join.call(a," ");return s.indexOf("The Chrome/Firefox/Safari extension cannot be detected on localhost")!==-1||s.indexOf("Navigator is not modified on localhost")!==-1||s.indexOf("Use ngrok to detect the extension")!==-1||s.indexOf("ChunkLoadError: Loading chunk")!==-1||s.indexOf("Loading chunk 2005 failed")!==-1||s.indexOf("useTranslation: SUBSCRIPTION_LINK_FOOTER is not available")!==-1||s.indexOf("working version is:")!==-1||s.indexOf("LegacyDataMixin will be applied to all legacy elements")!==-1||s.indexOf("_legacyUndefinedCheck: true")!==-1||s.indexOf("preloaded using link preload but not used")!==-1||s.indexOf("SES Removing unpermitted intrinsics")!==-1||s.indexOf("requestStorageAccessFor: Only supported")!==-1||s.indexOf("violates the following Content Security Policy directive")!==-1||s.indexOf("Refused to display")!==-1;}catch(e){return false}}console.warn=function(){if(_nf(arguments))return;return _cw.apply(console,arguments)};console.error=function(){if(_nf(arguments))return;return _ce.apply(console,arguments)};console.log=function(){if(_nf(arguments))return;return _cl.apply(console,arguments)};` +
@@ -255,7 +246,7 @@ const INJECT = (base, mode, youtubeHelper, youtubeRecovery) =>
   `rewrite:function(u,b){if(!u)return u;var t=String(u).trim();` +
   `if(/^(javascript:|data:|blob:|#|mailto:|tel:|about:|\\/nv\\/)/i.test(t))return u;` +
   `try{var e0=new URL(t,b||location.href);var h0=e0.hostname.toLowerCase();if((e0.protocol==="http:"||e0.protocol==="https:")&&e0.origin!==location.origin&&(${PROXY_MEDIA_HOST_RE.toString()}).test(h0))return"/nv/"+c.encode(e0.href)}catch(e){}` +
-  `try{var e=new URL(t,location.href);if(e.origin===location.origin){if(e.pathname.startsWith("/nv/")||e.pathname==="/api/fetch"||e.pathname==="/api/navion-status"||e.pathname==="/favicon.ico"||e.pathname==="/generate_204"||e.pathname==="/nv.sw.js"||e.pathname==="/nv.client.js"||e.pathname==="/nv.register.js"||e.pathname==="/nav/home"||e.pathname==="/nav/error"||e.pathname==="/app"||e.pathname==="/index.html")return u;t=e.pathname+e.search+e.hash;}}catch(e){}` +
+  `try{var e=new URL(t,location.href);if(e.origin===location.origin){if(e.pathname.startsWith("/nv/")||e.pathname==="/api/fetch"||e.pathname==="/api/navion-status"||e.pathname==="/api/jikan"||e.pathname==="/favicon.ico"||e.pathname==="/generate_204"||e.pathname==="/nv.sw.js"||e.pathname==="/nv.client.js"||e.pathname==="/nv.register.js"||e.pathname==="/nav/home"||e.pathname==="/nav/error"||e.pathname==="/app"||e.pathname==="/index.html")return u;t=e.pathname+e.search+e.hash;}}catch(e){}` +
   `try{var r=b?new URL(t,b):new URL(t);if(b){try{var bb=new URL(b);if(r.origin===bb.origin)return"/nv/"+c.encode(r.origin+"/")+r.pathname+r.search+r.hash;}catch(e){}}return"/nv/"+c.encode(r.href)}catch(e){return u}}};` +
   `try{if(window.top!==window&&document.requestStorageAccessFor)Object.defineProperty(document,"requestStorageAccessFor",{configurable:true,value:function(){return Promise.resolve()}})}catch(e){}` +
   `try{if(window.top!==window.self&&window.__navion)window.__navion.mode="lite-nav"}catch(e){}` +
@@ -281,6 +272,7 @@ export function rewriteHtml(html, base, options = {}) {
   const rewriteMode = options.rewriteMode || "full";
   const injectYouTubeHelper = options.injectYouTubeHelper === true || options.runtimeMode === "youtube";
   const injectYouTubeRecovery = options.injectYouTubeRecovery === true;
+  const rewriteInlineScripts = options.rewriteInlineScripts !== false;
   const out = [];
   let i = 0;
   let inScript = false;
@@ -332,7 +324,7 @@ export function rewriteHtml(html, base, options = {}) {
     if (inScript) {
       if (isClose && tag === "script") {
         inScript = false;
-        out.push(rewriteJs(scriptBuf, base));
+        out.push(rewriteInlineScripts ? rewriteJs(scriptBuf, base) : scriptBuf);
         scriptBuf = "";
         out.push("</script>");
       } else {

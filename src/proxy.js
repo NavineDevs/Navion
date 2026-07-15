@@ -7,7 +7,7 @@ import path from "node:path";
 import { URL } from "node:url";
 import { decode, encode, rewriteUrl, resolveNavionTarget } from "./rewriters/url.js";
 import { rewriteHtml } from "./rewriters/html.js";
-import { rewriteJs, rewriteCdnUrlLiterals } from "./rewriters/js.js";
+import { rewriteJs } from "./rewriters/js.js";
 import { rewriteCss } from "./rewriters/css.js";
 import { NAVION_CORE_CONFIG } from "./server/config/navion.config.js";
 import { runNavionHooks } from "./server/pipeline/hooks.js";
@@ -648,7 +648,6 @@ function shouldBypassJsRewrite(resourceUrl) {
       host.endsWith(".googleapis.com");
 
     if (u.pathname.startsWith("/_next/static/")) {
-      if (host.endsWith(".vercel.app")) return false;
       return true;
     }
     if (isYouTubeFamily) return true;
@@ -1447,6 +1446,17 @@ export async function handleProxy(req, res, url) {
   }
 
   const target = new URL(targetUrl);
+  const navRequest = isDocumentRequest(req);
+  if (
+    navRequest &&
+    (target.hostname.toLowerCase() === "youtube.com" || target.hostname.toLowerCase() === "www.youtube.com") &&
+    !target.pathname.startsWith("/youtubei/") &&
+    !target.pathname.startsWith("/s/")
+  ) {
+    target.hostname = "m.youtube.com";
+    targetUrl = target.href;
+    req.navionTargetUrl = targetUrl;
+  }
   const host = target.hostname.toLowerCase();
   const isGoogleVideo = host === "googlevideo.com" || host.endsWith(".googlevideo.com");
   const isYouTubeHost = isYouTubeLikeHost(host);
@@ -1458,7 +1468,6 @@ export async function handleProxy(req, res, url) {
   const isYouTubeApi = isYouTubeHost && target.pathname.startsWith("/youtubei/");
   const isYouTubeTelemetry = isYouTubeHost && isNonCriticalYouTubeTelemetryPath(target.pathname);
   const isDuckDuckGoTelemetry = isDuckDuckGoTelemetryHost(host) && isDuckDuckGoTelemetryPath(target.pathname);
-  const navRequest = isDocumentRequest(req);
   if (isDroppedTelemetryTarget(host, target.pathname)) {
     if (navRequest) {
       const fallback = fallbackAssetResponse(req, targetUrl, "");
@@ -1756,12 +1765,10 @@ export async function handleProxy(req, res, url) {
           htmlHost === "m.youtube.com" ||
           htmlHost.endsWith(".youtube.com")
         ) {
-          injectRuntime = true;
-          const ytDest = String(req.headers["sec-fetch-dest"] || "").toLowerCase();
-          const ytIframe = ytDest === "iframe" || ytDest === "frame";
-          runtimeMode = ytIframe ? "lite-nav" : "full";
+          injectRuntime = false;
+          runtimeMode = "lite-nav";
           rewriteMode = "full";
-          injectYouTubeHelper = !ytIframe;
+          injectYouTubeHelper = false;
         } else if (
           htmlHost === "duck.ai" ||
           htmlHost.endsWith(".duck.ai") ||
@@ -1782,7 +1789,7 @@ export async function handleProxy(req, res, url) {
         }
       } catch {}
       const htmlBase = isYouTubeHost ? targetUrl : finalUrl;
-      const out = rewriteHtml(text, htmlBase, { injectRuntime, runtimeMode, rewriteMode, injectYouTubeHelper });
+      const out = rewriteHtml(text, htmlBase, { injectRuntime, runtimeMode, rewriteMode, injectYouTubeHelper, rewriteInlineScripts: !isYouTubeHost });
       outHeaders["content-type"] = "text/html; charset=utf-8";
       delete outHeaders["content-length"];
       res.writeHead(response.status, outHeaders);
@@ -1811,7 +1818,7 @@ export async function handleProxy(req, res, url) {
       const buf = await collectStream(decompressStream(response.body, enc));
       const source = buf.toString("utf8");
       const prepared = rewriteDuckDuckGoScript(rewriteDuckAiScript(source, finalUrl), finalUrl);
-      const out = shouldBypassJsRewrite(finalUrl) ? rewriteCdnUrlLiterals(prepared, finalUrl) : rewriteJs(prepared, finalUrl);
+      const out = shouldBypassJsRewrite(finalUrl) ? prepared : rewriteJs(prepared, finalUrl);
       delete outHeaders["content-length"];
       res.writeHead(response.status, outHeaders);
       res.end(out);
